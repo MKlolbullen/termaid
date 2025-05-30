@@ -1,17 +1,24 @@
 package main
 
 import (
-	"log"
+		"log"
 
-	tea "github.com/charmbracelet/bubbletea"
+		tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/MKlolbullen/termaid/internal/tui"
+		"github.com/MKlolbullen/termaid/internal/tui"
 )
 
 func main() {
-	p := tea.NewProgram(
-		tui.NewMenu(),       // start at high-level menu
-		tea.WithAltScreen(), // use the full terminal
+		// Launch the TUI in full-screen “AltScreen” mode.
+		prog := tea.NewProgram(
+			tui.NewMenu(),      // entry point = main menu
+			tea.WithAltScreen(), // use the whole terminal
+		)
+
+		if err := prog.Start(); err != nil {
+			log.Fatal(err)
+		}
+}
 	)
 
 	if err := p.Start(); err != nil {
