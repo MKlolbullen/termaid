@@ -6,11 +6,11 @@ import (
 	"os"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"bb-runner/internal/pipeline"
+	"github.com/MKlolbullen/termaid/internal/pipeline"
 )
 
 /* ────────────────── Progress + Log Model ─────────────────────── */
@@ -80,7 +80,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() string {
 	chart := m.renderChart()
 
-	if m.vp.Width() == 0 {
+	if m.vp.Width == 0 {
 		m.vp.Width = lipgloss.Width(chart)
 	}
 
@@ -145,7 +145,7 @@ func (m Model) renderChart() string {
 			case pipeline.StatusFinish:
 				style = style.Foreground(lipgloss.Color("10")) // green
 			case pipeline.StatusError:
-				style = style.Foreground(lipgloss.Color("9"))  // red
+				style = style.Foreground(lipgloss.Color("9")) // red
 			}
 			out += style.Render(id)
 			if j != len(cat.Tools)-1 {

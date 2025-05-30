@@ -7,12 +7,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-/*   assets/tools.yaml schema
-- name: subfinder
-  cat: DNS
-  desc: Fast subdomain enumeration
-  def: "-d {{domain}} -silent -o {{output}}"
-*/
+/* ------ Shared UI list.Item: entryItem ------ */
+
+type entryItem struct{ name, desc string }
+
+func (e entryItem) Title() string       { return e.name }
+func (e entryItem) Description() string { return e.desc }
+func (e entryItem) FilterValue() string { return e.name }
+
+/* ─── catalogEntry (YAML) ─────────────────────────────────────────── */
 
 type catalogEntry struct {
 	Name string `yaml:"name"`
@@ -20,6 +23,11 @@ type catalogEntry struct {
 	Desc string `yaml:"desc"`
 	Def  string `yaml:"def"`
 }
+
+/* ─── entryItem (UI list item) ────────────────────────────────────── */
+
+
+/* ─── global catalog slice ───────────────────────────────────────── */
 
 var catalog []catalogEntry
 
@@ -44,7 +52,7 @@ func LoadCatalog(path string) ([]catalogEntry, error) {
 	return list, nil
 }
 
-/* helper to pull default args */
+/* helper used by builder */
 func defaultArgs(tool string) string {
 	for _, c := range catalog {
 		if c.Name == tool {

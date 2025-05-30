@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# BB-Runner install.sh
+# termaid install.sh
 # Installs Go, Python, and all bug bounty tools from tools.yaml.
 #
 set -euo pipefail
@@ -10,7 +10,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${GREEN}[*] BB-Runner Installer starting...${NC}"
+echo -e "${GREEN}[*] termaid Installer starting...${NC}"
 
 # --- OS detection ---
 if command -v apt-get >/dev/null; then
@@ -51,14 +51,14 @@ if ! command -v node >/dev/null; then
 fi
 
 echo -e "${GREEN}[*] Installing Charm.sh libraries...${NC}"
-go install github.com/charmbracelet/bubbletea@latest
-go install github.com/charmbracelet/bubbles@latest
-go install github.com/charmbracelet/lipgloss@latest
-go install github.com/charmbracelet/glow@latest
+#go install github.com/charmbracelet/bubbletea@latest
+#go install github.com/charmbracelet/bubbles@latest
+#go install github.com/charmbracelet/lipgloss@latest
+#go install github.com/charmbracelet/glow@latest
 
-echo -e "${GREEN}[*] Compiling BB-Runner...${NC}"
+echo -e "${GREEN}[*] Compiling termaid...${NC}"
 go mod tidy
-go build -o bb-runner ./cmd/bb-runner || go build -o bb-runner
+go build -o termaid ./cmd/termaid || go build -o termaid
 
 # --- Go tools (direct install) ---
 echo -e "${GREEN}[*] Installing main Go-based recon tools...${NC}"
@@ -71,28 +71,28 @@ go install github.com/projectdiscovery/dnsx/cmd/dnsx@latest
 go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
 go install github.com/hakluke/hakrawler@latest
 go install github.com/projectdiscovery/alterx/cmd/alterx@latest
-go install github.com/hakluke/gf@latest
+go install github.com/tomnomnom/gf@latest
 go install github.com/lc/gau@latest
 go install github.com/bp0lr/gauplus@latest
 go install github.com/projectdiscovery/uncover/cmd/uncover@latest
-go install github.com/projectdiscovery/subjack/cmd/subjack@latest
-go install github.com/hakluke/subzy@latest
+go install github.com/haccer/subjack@latest
+go install github.com/PentestPad/subzy@latest
 go install github.com/ffuf/ffuf@latest
 go install github.com/Emoe/kxss@latest
 go install github.com/lc/gau@latest
 
 # --- More Go tools and custom sources ---
-if ! command -v gobuster >/dev/null; then
-    go install github.com/OJ/gobuster/v3@latest
-fi
-if ! command -v amass >/dev/null; then
-    go install github.com/owasp-amass/amass/v4/...@latest
-fi
-if ! command -v massdns >/dev/null; then
-    git clone https://github.com/blechschmidt/massdns.git /tmp/massdns
-    cd /tmp/massdns && make && $SUDO cp bin/massdns /usr/local/bin && cd -
-    rm -rf /tmp/massdns
-fi
+#if ! command -v gobuster >/dev/null; then
+#    go install github.com/OJ/gobuster/v3@latest
+#fi
+#if ! command -v amass >/dev/null; then
+#    go install github.com/owasp-amass/amass/v4/...@latest
+#fi
+#if ! command -v massdns >/dev/null; then
+#    git clone https://github.com/blechschmidt/massdns.git /tmp/massdns
+#    cd /tmp/massdns && make && $SUDO cp bin/massdns /usr/local/bin && cd -
+#    rm -rf /tmp/massdns
+#fi
 if ! command -v dalfox >/dev/null; then
     go install github.com/hahwul/dalfox/v2@latest
 fi
@@ -134,7 +134,7 @@ if ! command -v gospider >/dev/null; then
 fi
 
 # install XSStrike (pip)
-pip3 install XSStrike
+pip3 install xsstrike
 
 # install smuggler (Python script)
 if ! command -v smuggler >/dev/null; then
@@ -157,22 +157,21 @@ go install github.com/michenriksen/aquatone@latest
 go install github.com/sensepost/gowitness@latest
 
 # install whatweb (Ruby)
-if ! command -v whatweb >/dev/null; then
-    $SUDO $PKG install -y ruby ruby-dev || true
-    $SUDO gem install whatweb
-fi
+#if ! command -v whatweb >/dev/null; then
+#    $SUDO $PKG install -y ruby ruby-dev || true
+#    $SUDO gem install whatweb
+#fi
 
 # --- Nmap (via system pkg) ---
-if ! command -v nmap >/dev/null; then
-    $SUDO $PKG install -y nmap
-fi
+#if ! command -v nmap >/dev/null; then
+#    $SUDO $PKG install -y nmap
+#fi
 
 # --- Other utilities ---
 if ! command -v jq >/dev/null; then
     $SUDO $PKG install -y jq
 fi
 
-echo -e "${GREEN}[+] All tools and BB-Runner installed! Add ~/go/bin to your PATH if not present.${NC}"
+echo -e "${GREEN}[+] All tools and termaid installed! Add ~/go/bin to your PATH if not present.${NC}"
 echo -e "${YELLOW}[!] If you want wordlists (for ffuf/gobuster/etc), run: git clone https://github.com/danielmiessler/SecLists.git ~/SecLists${NC}"
-echo -e "${GREEN}[✓] Run ./bb-runner to start the TUI.${NC}"
-
+echo -e "${GREEN}[✓] Run ./termaid to start the TUI.${NC}"

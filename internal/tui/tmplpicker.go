@@ -4,11 +4,10 @@ import (
 	"context"
 	"path/filepath"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/list"
+	tea "github.com/charmbracelet/bubbletea"
 
-	"bb-runner/internal/graph"
-	"bb-runner/internal/pipeline"
+	"github.com/MKlolbullen/termaid/internal/pipeline"
 )
 
 type tmplPicker struct {

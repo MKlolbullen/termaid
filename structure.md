@@ -1,4 +1,4 @@
-bb-runner/
+termaid/
 ├── assets/
 │   └── tools.yaml        # tool catalogue + default args
 ├── workflows/

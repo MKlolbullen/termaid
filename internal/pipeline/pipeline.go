@@ -12,8 +12,6 @@ import (
 	"sync"
 
 	"github.com/charmbracelet/log"
-
-	"bb-runner/internal/graph"
 )
 
 /* ─────────────────────────── Config Structs ───────────────────────────── */
@@ -110,7 +108,7 @@ func Run(
 
 func runTool(
 	ctx context.Context,
-	tool *Tool,          // node-derived unique tool
+	tool *Tool, // node-derived unique tool
 	catName, catDir string,
 	inputPath string,
 	inputReader io.Reader,
@@ -200,7 +198,7 @@ func mergeOutputs(dir string) (string, io.Reader, error) {
 }
 
 func seedInput(domain string) (string, io.Reader) {
-	temp := filepath.Join(os.TempDir(), "bb-runner-domain.txt")
+	temp := filepath.Join(os.TempDir(), "termaid-domain.txt")
 	_ = os.WriteFile(temp, []byte(domain+"\n"), 0644)
 	return temp, strings.NewReader(domain + "\n")
 }

@@ -4,24 +4,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"bb-runner/internal/graph"
+	"github.com/MKlolbullen/termaid/internal/graph"
 )
 
-/* ---------- list.Item ---------- */
-
-type entryItem struct{ name, desc string }
-
-func (e entryItem) Title() string       { return e.name }
-func (e entryItem) Description() string { return e.desc }
-func (e entryItem) FilterValue() string { return e.name }
 
 /* ---------- Builder model ---------- */
 

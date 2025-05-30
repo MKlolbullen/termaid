@@ -10,21 +10,16 @@ import (
 	"sort"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/list"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"bb-runner/internal/graph"
-	"bb-runner/internal/pipeline"
+	"github.com/MKlolbullen/termaid/internal/graph"
+	"github.com/MKlolbullen/termaid/internal/pipeline"
 )
 
 /* list.Item wrapper */
 
-type entryItem struct{ name, desc string }
-
-func (e entryItem) Title() string       { return e.name }
-func (e entryItem) Description() string { return e.desc }
-func (e entryItem) FilterValue() string { return e.name }
 
 /* Menu model */
 
@@ -82,7 +77,7 @@ func (m MenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m MenuModel) View() string {
 	title := lipgloss.NewStyle().Bold(true).
-		Foreground(lipgloss.Color("14")).Render("BB-Runner")
+		Foreground(lipgloss.Color("14")).Render("termaid")
 	return title + "\n\n" + m.choices.View()
 }
 
@@ -102,7 +97,9 @@ func loadWorkflow(path string) (*graph.DAG, error) {
 	if err != nil {
 		return nil, err
 	}
-	var wrap struct{ Workflow []graph.Node `json:"workflow"` }
+	var wrap struct {
+		Workflow []graph.Node `json:"workflow"`
+	}
 	if err := json.Unmarshal(data, &wrap); err != nil {
 		return nil, err
 	}
@@ -157,10 +154,10 @@ func dagToCategories(g *graph.DAG) []pipeline.Category {
 		for _, n := range g.Nodes {
 			if n.Layer == l {
 				tools = append(tools, pipeline.Tool{
-					Name:     n.ID,                                     // node ID
+					Name:     n.ID, // node ID
 					Command:  n.Tool,
 					Args:     strings.Fields(n.Args),
-					Output:   fmt.Sprintf("%s_%s.txt", n.Tool, n.ID),   // unique output
+					Output:   fmt.Sprintf("%s_%s.txt", n.Tool, n.ID), // unique output
 					Parallel: true,
 				})
 			}
@@ -179,6 +176,6 @@ type errorModel struct{ err error }
 
 func errView(e error) tea.Model { return errorModel{e} }
 
-func (e errorModel) Init() tea.Cmd                               { return nil }
-func (e errorModel) Update(tea.Msg) (tea.Model, tea.Cmd)         { return e, tea.Quit }
-func (e errorModel) View() string                                { return "Error: " + e.err.Error() }
+func (e errorModel) Init() tea.Cmd                       { return nil }
+func (e errorModel) Update(tea.Msg) (tea.Model, tea.Cmd) { return e, tea.Quit }
+func (e errorModel) View() string                        { return "Error: " + e.err.Error() }
