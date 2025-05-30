@@ -1,4 +1,4 @@
-module github.com/MKlolbullen/bb-runner
+module github.com/MKlolbullen/termaid
 
 go 1.24.2
 
