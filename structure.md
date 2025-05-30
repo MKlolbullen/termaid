@@ -12,7 +12,8 @@ termaid/
 │   │   ├── model.go
 │   │   └── tmplpicker.go
 │   ├── graph/
-│   │   └── dag.go
+│   │   ├── dag.go
+│   │   └── graph.go
 │   └── pipeline/
 │       └── pipeline.go
 ├── install.sh            # installer (bash)

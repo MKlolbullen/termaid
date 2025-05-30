@@ -1,0 +1,22 @@
+graph LR
+  subgraph subdomain_parallel["Parallel Subdomain Discovery"]
+    subfinder-1["subfinder\n-d {{domain}} -silent -o {{output}}"]
+    assetfinder-1["assetfinder\n--subs-only {{domain}} > {{output}}"]
+  end
+  
+  subgraph L2["Layer 2"]
+    httpx-1["httpx\n-l {{input}} -title -tech-detect -json -silent -o {{output}}"]
+    ffuf-1["ffuf\n-u {{input}}/FUZZ -w ~/.local/share/termaid/wordlists/common/directories.txt -mc 200,204,301,302,307,401,403 -fc 404 -silent -o {{output}}"]
+  end
+  
+  subgraph scanning_parallel["Parallel Vulnerability Scanning"]
+    nuclei-1["nuclei\n-l {{input}} -severity medium,high,critical -silent -o {{output}}"]
+    nuclei-2["nuclei\n-l {{input}} -t ~/nuclei-templates/http/ -severity high,critical -silent -o {{output}}"]
+  end
+  
+  input([Start]) --> subfinder-1
+  input --> assetfinder-1
+  subfinder-1 -->|sequential| httpx-1
+  assetfinder-1 -->|sequential| httpx-1
+  httpx-1 -->|sequential| nuclei-1
+  ffuf-1 -->|sequential| nuclei-2

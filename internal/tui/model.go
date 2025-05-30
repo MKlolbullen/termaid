@@ -28,6 +28,8 @@ type Model struct {
 	logPath  string
 }
 
+type doneMsg struct{}
+
 func New(cats []pipeline.Category, ch <-chan pipeline.Status) Model {
 	vp := viewport.New(0, 10) // width set later
 	vp.SetContent("")
@@ -56,7 +58,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.logBuf.WriteString(line + "\n")
 		m.vp.SetContent(m.logBuf.String())
+		m.vp.GotoBottom()
 		return m, m.nextStatus()
+
+	case doneMsg:
+		m.done = true
+		m.flushLog()
+		return m, nil
 
 	case tea.KeyMsg:
 		switch v.String() {
@@ -102,9 +110,7 @@ func (m Model) nextStatus() tea.Cmd {
 		if st, ok := <-m.statusCh; ok {
 			return st
 		}
-		m.done = true
-		m.flushLog()
-		return nil
+		return doneMsg{}
 	}
 }
 

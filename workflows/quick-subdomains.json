@@ -1,0 +1,32 @@
+{
+  "workflow": [
+    {
+      "id": "subfinder-1",
+      "tool": "subfinder",
+      "args": "-d {{domain}} -silent -o {{output}}",
+      "children": ["httpx-1"],
+      "layer": 1
+    },
+    {
+      "id": "assetfinder-1",
+      "tool": "assetfinder", 
+      "args": "--subs-only {{domain}} > {{output}}",
+      "children": ["httpx-1"],
+      "layer": 1
+    },
+    {
+      "id": "httpx-1",
+      "tool": "httpx",
+      "args": "-l {{input}} -title -tech-detect -status-code -silent -o {{output}}",
+      "children": ["nuclei-1"],
+      "layer": 2
+    },
+    {
+      "id": "nuclei-1",
+      "tool": "nuclei",
+      "args": "-l {{input}} -t /root/nuclei-templates/ -severity high,critical -silent -o {{output}}",
+      "children": [],
+      "layer": 3
+    }
+  ]
+}

@@ -1,0 +1,456 @@
+{
+  "version": "2.0",
+  "metadata": {
+    "name": "Comprehensive Web Application Security Assessment",
+    "description": "Advanced web application security testing workflow covering OWASP Top 10 and beyond",
+    "author": "0xDAYBULLEN",
+    "version": "1.0",
+    "methodology": "OWASP WSTG, PTES, NIST",
+    "estimated_runtime": "3-6 hours",
+    "complexity": "Advanced",
+    "target_type": "Web Application",
+    "stealth_level": "Medium",
+    "coverage": [
+      "OWASP Top 10 2021",
+      "Authentication Testing",
+      "Session Management",
+      "Input Validation",
+      "Business Logic",
+      "Client-side Security"
+    ]
+  },
+  "matrix": {
+    "max_x": 7,
+    "max_y": 4
+  },
+  "subgraphs": [
+    {
+      "id": "initial_recon",
+      "name": "Initial Reconnaissance",
+      "parallel": true,
+      "nodes": ["subfinder-1", "assetfinder-1", "crtsh-1"]
+    },
+    {
+      "id": "service_discovery",
+      "name": "Service Discovery",
+      "parallel": true,
+      "nodes": ["naabu-1", "masscan-1"]
+    },
+    {
+      "id": "web_discovery",
+      "name": "Web Application Discovery",
+      "parallel": true,
+      "nodes": ["httpx-1", "whatweb-1", "wappalyzer-1"]
+    },
+    {
+      "id": "content_discovery",
+      "name": "Content Discovery",
+      "parallel": true,
+      "nodes": ["ffuf-1", "gobuster-1", "feroxbuster-1", "dirsearch-1"]
+    },
+    {
+      "id": "crawler_analysis",
+      "name": "Crawler and Analysis",
+      "parallel": true,
+      "nodes": ["katana-1", "gospider-1", "hakrawler-1"]
+    },
+    {
+      "id": "parameter_discovery",
+      "name": "Parameter Discovery",
+      "parallel": true,
+      "nodes": ["arjun-1", "paramspider-1", "x8-1"]
+    },
+    {
+      "id": "injection_testing",
+      "name": "Injection Vulnerability Testing",
+      "parallel": true,
+      "nodes": ["sqlmap-1", "nosqlmap-1", "commix-1", "tplmap-1"]
+    },
+    {
+      "id": "xss_testing",
+      "name": "Cross-Site Scripting Testing",
+      "parallel": true,
+      "nodes": ["dalfox-1", "xsstrike-1", "kxss-1"]
+    },
+    {
+      "id": "advanced_vulns",
+      "name": "Advanced Vulnerability Testing",
+      "parallel": true,
+      "nodes": ["nuclei-1", "jaeles-1", "gf-secrets-1"]
+    },
+    {
+      "id": "final_verification",
+      "name": "Final Verification",
+      "parallel": true,
+      "nodes": ["nuclei-verify-1", "manual-verify-1"]
+    }
+  ],
+  "workflow": [
+    {
+      "id": "subfinder-1",
+      "tool": "subfinder",
+      "args": "-d {{domain}} -all -recursive -silent -o {{output}}",
+      "children": ["dnsx-1"],
+      "layer": 1,
+      "position": 0,
+      "parallel": true,
+      "subgraph": "initial_recon",
+      "sub_x": 0,
+      "sub_y": 0
+    },
+    {
+      "id": "assetfinder-1",
+      "tool": "assetfinder",
+      "args": "--subs-only {{domain}} > {{output}}",
+      "children": ["dnsx-1"],
+      "layer": 1,
+      "position": 1,
+      "parallel": true,
+      "subgraph": "initial_recon",
+      "sub_x": 1,
+      "sub_y": 0
+    },
+    {
+      "id": "crtsh-1",
+      "tool": "crtsh",
+      "args": "-domain {{domain}} -output {{output}}",
+      "children": ["dnsx-1"],
+      "layer": 1,
+      "position": 2,
+      "parallel": true,
+      "subgraph": "initial_recon",
+      "sub_x": 2,
+      "sub_y": 0
+    },
+    {
+      "id": "dnsx-1",
+      "tool": "dnsx",
+      "args": "-l {{input}} -resp -a -aaaa -cname -mx -ptr -soa -txt -silent -o {{output}}",
+      "children": ["naabu-1", "masscan-1"],
+      "layer": 2,
+      "position": 0,
+      "parallel": false
+    },
+    {
+      "id": "naabu-1",
+      "tool": "naabu",
+      "args": "-l {{input}} -top-ports 1000 -exclude-ports 22,23,135,139,445,993,995 -silent -o {{output}}",
+      "children": ["httpx-1"],
+      "layer": 2,
+      "position": 1,
+      "parallel": true,
+      "subgraph": "service_discovery",
+      "sub_x": 0,
+      "sub_y": 0
+    },
+    {
+      "id": "masscan-1",
+      "tool": "masscan",
+      "args": "-iL {{input}} -p 80,443,8080,8443,3000,5000,8000,8888,9090 --rate 1000 -oG {{output}}",
+      "children": ["httpx-1"],
+      "layer": 2,
+      "position": 2,
+      "parallel": true,
+      "subgraph": "service_discovery",
+      "sub_x": 1,
+      "sub_y": 0
+    },
+    {
+      "id": "httpx-1",
+      "tool": "httpx",
+      "args": "-l {{input}} -title -tech-detect -status-code -content-length -web-server -method -websocket -csp-probe -pipeline -http2 -follow-redirects -location -favicon -jarm -asn -cdn -probe -silent -json -o {{output}}",
+      "children": ["whatweb-1", "wappalyzer-1", "ffuf-1"],
+      "layer": 3,
+      "position": 0,
+      "parallel": false
+    },
+    {
+      "id": "whatweb-1",
+      "tool": "whatweb",
+      "args": "-i {{input}} --color=never --no-errors -a 3 --log-json={{output}}",
+      "children": ["katana-1"],
+      "layer": 3,
+      "position": 1,
+      "parallel": true,
+      "subgraph": "web_discovery",
+      "sub_x": 0,
+      "sub_y": 0
+    },
+    {
+      "id": "wappalyzer-1",
+      "tool": "wappalyzer",
+      "args": "{{input}} --output={{output}} --format=json",
+      "children": ["katana-1"],
+      "layer": 3,
+      "position": 2,
+      "parallel": true,
+      "subgraph": "web_discovery",
+      "sub_x": 1,
+      "sub_y": 0
+    },
+    {
+      "id": "ffuf-1",
+      "tool": "ffuf",
+      "args": "-u {{input}}/FUZZ -w ~/.local/share/termaid/wordlists/SecLists/Discovery/Web-Content/raft-large-directories.txt -mc 200,204,301,302,307,401,403,405 -fc 404,400 -fs 0 -ac -t 100 -rate 50 -o {{output}} -of json",
+      "children": ["gobuster-1"],
+      "layer": 4,
+      "position": 0,
+      "parallel": true,
+      "subgraph": "content_discovery",
+      "sub_x": 0,
+      "sub_y": 0
+    },
+    {
+      "id": "gobuster-1",
+      "tool": "gobuster",
+      "args": "dir -u {{input}} -w ~/.local/share/termaid/wordlists/SecLists/Discovery/Web-Content/directory-list-2.3-medium.txt -x php,html,txt,js,json,xml,pdf,zip,tar,gz,bak,old,asp,aspx,jsp,do,action -s 200,204,301,302,307,401,403,405 -t 50 -o {{output}}",
+      "children": ["feroxbuster-1"],
+      "layer": 4,
+      "position": 1,
+      "parallel": true,
+      "subgraph": "content_discovery",
+      "sub_x": 1,
+      "sub_y": 0
+    },
+    {
+      "id": "feroxbuster-1",
+      "tool": "feroxbuster",
+      "args": "-u {{input}} -w ~/.local/share/termaid/wordlists/SecLists/Discovery/Web-Content/raft-large-files.txt -x php,html,txt,js,json,xml,pdf,zip,tar,gz,bak,old,asp,aspx,jsp,do,action -s 200,204,301,302,307,401,403,405 -t 50 -o {{output}}",
+      "children": ["dirsearch-1"],
+      "layer": 4,
+      "position": 2,
+      "parallel": true,
+      "subgraph": "content_discovery",
+      "sub_x": 2,
+      "sub_y": 0
+    },
+    {
+      "id": "dirsearch-1",
+      "tool": "dirsearch",
+      "args": "-u {{input}} -w ~/.local/share/termaid/wordlists/SecLists/Discovery/Web-Content/common.txt -e php,html,txt,js,json,xml,pdf,zip,tar,gz,bak,old,asp,aspx,jsp,do,action -f -t 50 --format=json -o {{output}}",
+      "children": ["katana-1"],
+      "layer": 4,
+      "position": 3,
+      "parallel": true,
+      "subgraph": "content_discovery",
+      "sub_x": 3,
+      "sub_y": 0
+    },
+    {
+      "id": "katana-1",
+      "tool": "katana",
+      "args": "-list {{input}} -d 3 -jc -kf all -jsl -aff -xhr -form -scope {{domain}} -silent -o {{output}}",
+      "children": ["gospider-1"],
+      "layer": 5,
+      "position": 0,
+      "parallel": true,
+      "subgraph": "crawler_analysis",
+      "sub_x": 0,
+      "sub_y": 0
+    },
+    {
+      "id": "gospider-1",
+      "tool": "gospider",
+      "args": "-S {{input}} -d 3 -c 20 -t 10 --include-subs --include-other-source -a -w -r -o {{output}}",
+      "children": ["hakrawler-1"],
+      "layer": 5,
+      "position": 1,
+      "parallel": true,
+      "subgraph": "crawler_analysis",
+      "sub_x": 1,
+      "sub_y": 0
+    },
+    {
+      "id": "hakrawler-1",
+      "tool": "hakrawler",
+      "args": "-url {{input}} -depth 3 -scope subs -forms -linkfinder -wayback -sitemap -robots -outdir {{output}}",
+      "children": ["arjun-1"],
+      "layer": 5,
+      "position": 2,
+      "parallel": true,
+      "subgraph": "crawler_analysis",
+      "sub_x": 2,
+      "sub_y": 0
+    },
+    {
+      "id": "arjun-1",
+      "tool": "arjun",
+      "args": "-i {{input}} -oT {{output}} --stable -t 20 -d 1 -w ~/.local/share/termaid/wordlists/SecLists/Discovery/Web-Content/burp-parameter-names.txt",
+      "children": ["paramspider-1"],
+      "layer": 5,
+      "position": 3,
+      "parallel": true,
+      "subgraph": "parameter_discovery",
+      "sub_x": 0,
+      "sub_y": 0
+    },
+    {
+      "id": "paramspider-1",
+      "tool": "paramspider",
+      "args": "-d {{domain}} -s -o {{output}}",
+      "children": ["x8-1"],
+      "layer": 5,
+      "position": 4,
+      "parallel": true,
+      "subgraph": "parameter_discovery",
+      "sub_x": 1,
+      "sub_y": 0
+    },
+    {
+      "id": "x8-1",
+      "tool": "x8",
+      "args": "-u {{input}} -w ~/.local/share/termaid/wordlists/SecLists/Discovery/Web-Content/burp-parameter-names.txt -o {{output}}",
+      "children": ["sqlmap-1"],
+      "layer": 5,
+      "position": 5,
+      "parallel": true,
+      "subgraph": "parameter_discovery",
+      "sub_x": 2,
+      "sub_y": 0
+    },
+    {
+      "id": "sqlmap-1",
+      "tool": "sqlmap",
+      "args": "-m {{input}} --batch --smart --level=3 --risk=2 --threads=5 --tamper=space2comment,charencode --technique=BEUSTQ --banner --current-user --current-db --is-dba --users --passwords --dbs --tables --dump-all --exclude-sysdbs -o {{output}}",
+      "children": ["dalfox-1"],
+      "layer": 6,
+      "position": 0,
+      "parallel": true,
+      "subgraph": "injection_testing",
+      "sub_x": 0,
+      "sub_y": 0
+    },
+    {
+      "id": "nosqlmap-1",
+      "tool": "nosqlmap",
+      "args": "-f {{input}} --scan --exploit --batch -o {{output}}",
+      "children": ["dalfox-1"],
+      "layer": 6,
+      "position": 1,
+      "parallel": true,
+      "subgraph": "injection_testing",
+      "sub_x": 1,
+      "sub_y": 0
+    },
+    {
+      "id": "commix-1",
+      "tool": "commix",
+      "args": "-m {{input}} --batch --all --level=3 --risk=3 -o {{output}}",
+      "children": ["dalfox-1"],
+      "layer": 6,
+      "position": 2,
+      "parallel": true,
+      "subgraph": "injection_testing",
+      "sub_x": 2,
+      "sub_y": 0
+    },
+    {
+      "id": "tplmap-1",
+      "tool": "tplmap",
+      "args": "-f {{input}} --batch --engine all -o {{output}}",
+      "children": ["dalfox-1"],
+      "layer": 6,
+      "position": 3,
+      "parallel": true,
+      "subgraph": "injection_testing",
+      "sub_x": 3,
+      "sub_y": 0
+    },
+    {
+      "id": "dalfox-1",
+      "tool": "dalfox",
+      "args": "file {{input}} --skip-bav --skip-grepping --skip-mime-from-file --silence --worker 100 --delay 100 --timeout 10 --blind --deep-domxss --trigger-event-timeout 2 --ignore-return 302,404,403 --custom-payload ~/.local/share/termaid/wordlists/SecLists/Fuzzing/XSS/XSS-Bypass-Filters-Evasion.txt --format json -o {{output}}",
+      "children": ["nuclei-1"],
+      "layer": 6,
+      "position": 4,
+      "parallel": true,
+      "subgraph": "xss_testing",
+      "sub_x": 0,
+      "sub_y": 0
+    },
+    {
+      "id": "xsstrike-1",
+      "tool": "xsstrike",
+      "args": "-f {{input}} --fuzzer --blind --crawl --seeds 50 -o {{output}}",
+      "children": ["nuclei-1"],
+      "layer": 6,
+      "position": 5,
+      "parallel": true,
+      "subgraph": "xss_testing",
+      "sub_x": 1,
+      "sub_y": 0
+    },
+    {
+      "id": "kxss-1",
+      "tool": "kxss",
+      "args": "-l {{input}} -o {{output}}",
+      "children": ["nuclei-1"],
+      "layer": 6,
+      "position": 6,
+      "parallel": true,
+      "subgraph": "xss_testing",
+      "sub_x": 2,
+      "sub_y": 0
+    },
+    {
+      "id": "nuclei-1",
+      "tool": "nuclei",
+      "args": "-l {{input}} -t ~/nuclei-templates/ -severity medium,high,critical -exclude-severity info,low -exclude-tags dos,fuzz -rl 50 -c 25 -timeout 15 -retries 2 -no-color -silent -json -o {{output}}",
+      "children": ["jaeles-1"],
+      "layer": 7,
+      "position": 0,
+      "parallel": true,
+      "subgraph": "advanced_vulns",
+      "sub_x": 0,
+      "sub_y": 0
+    },
+    {
+      "id": "jaeles-1",
+      "tool": "jaeles",
+      "args": "scan -U {{input}} --config ~/.config/jaeles/ -o {{output}}",
+      "children": ["gf-secrets-1"],
+      "layer": 7,
+      "position": 1,
+      "parallel": true,
+      "subgraph": "advanced_vulns",
+      "sub_x": 1,
+      "sub_y": 0
+    },
+    {
+      "id": "gf-secrets-1",
+      "tool": "gf",
+      "args": "secrets {{input}} > {{output}}",
+      "children": ["nuclei-verify-1"],
+      "layer": 7,
+      "position": 2,
+      "parallel": true,
+      "subgraph": "advanced_vulns",
+      "sub_x": 2,
+      "sub_y": 0
+    },
+    {
+      "id": "nuclei-verify-1",
+      "tool": "nuclei",
+      "args": "-l {{input}} -t ~/nuclei-templates/exposures/ -t ~/nuclei-templates/misconfiguration/ -t ~/nuclei-templates/takeovers/ -severity critical,high -rl 25 -c 10 -timeout 30 -retries 1 -no-color -silent -json -o {{output}}",
+      "children": [],
+      "layer": 7,
+      "position": 3,
+      "parallel": true,
+      "subgraph": "final_verification",
+      "sub_x": 0,
+      "sub_y": 0
+    },
+    {
+      "id": "manual-verify-1",
+      "tool": "echo",
+      "args": "Manual verification checkpoint - Review all findings > {{output}}",
+      "children": [],
+      "layer": 7,
+      "position": 4,
+      "parallel": true,
+      "subgraph": "final_verification",
+      "sub_x": 1,
+      "sub_y": 0
+    }
+  ]
+}

@@ -1,0 +1,182 @@
+{
+  "version": "2.0",
+  "matrix": {
+    "max_x": 5,
+    "max_y": 3
+  },
+  "subgraphs": [
+    {
+      "id": "subdomain_enum",
+      "name": "Parallel Subdomain Enumeration",
+      "parallel": true,
+      "nodes": ["subfinder-1", "assetfinder-1", "amass-1"]
+    },
+    {
+      "id": "port_web_probe",
+      "name": "Port & Web Probing",
+      "parallel": true,
+      "nodes": ["naabu-1", "httpx-1"]
+    },
+    {
+      "id": "content_discovery",
+      "name": "Content Discovery Branch",
+      "parallel": true,
+      "nodes": ["ffuf-1", "gobuster-1", "katana-1"]
+    },
+    {
+      "id": "vuln_scanning",
+      "name": "Vulnerability Scanning Branch", 
+      "parallel": true,
+      "nodes": ["nuclei-1", "dalfox-1"]
+    }
+  ],
+  "workflow": [
+    {
+      "id": "subfinder-1",
+      "tool": "subfinder",
+      "args": "-d {{domain}} -silent -all -o {{output}}",
+      "children": ["dnsx-1"],
+      "layer": 1,
+      "position": 0,
+      "parallel": true,
+      "subgraph": "subdomain_enum",
+      "sub_x": 0,
+      "sub_y": 0
+    },
+    {
+      "id": "assetfinder-1",
+      "tool": "assetfinder",
+      "args": "--subs-only {{domain}} > {{output}}",
+      "children": ["dnsx-1"],
+      "layer": 1,
+      "position": 1,
+      "parallel": true,
+      "subgraph": "subdomain_enum",
+      "sub_x": 1,
+      "sub_y": 0
+    },
+    {
+      "id": "amass-1",
+      "tool": "amass",
+      "args": "enum -passive -d {{domain}} -o {{output}}",
+      "children": ["dnsx-1"],
+      "layer": 1,
+      "position": 2,
+      "parallel": true,
+      "subgraph": "subdomain_enum",
+      "sub_x": 2,
+      "sub_y": 0
+    },
+    {
+      "id": "dnsx-1",
+      "tool": "dnsx",
+      "args": "-l {{input}} -resp -a -aaaa -cname -silent -o {{output}}",
+      "children": ["naabu-1", "httpx-1"],
+      "layer": 2,
+      "position": 0,
+      "parallel": false
+    },
+    {
+      "id": "naabu-1",
+      "tool": "naabu",
+      "args": "-l {{input}} -top-ports 1000 -silent -o {{output}}",
+      "children": ["httpx-2"],
+      "layer": 3,
+      "position": 0,
+      "parallel": true,
+      "subgraph": "port_web_probe",
+      "sub_x": 0,
+      "sub_y": 0
+    },
+    {
+      "id": "httpx-1",
+      "tool": "httpx",
+      "args": "-l {{input}} -title -tech-detect -status-code -silent -o {{output}}",
+      "children": ["ffuf-1", "gobuster-1", "katana-1"],
+      "layer": 3,
+      "position": 1,
+      "parallel": true,
+      "subgraph": "port_web_probe",
+      "sub_x": 1,
+      "sub_y": 0
+    },
+    {
+      "id": "httpx-2",
+      "tool": "httpx",
+      "args": "-l {{input}} -ports 80,443,8080,8443 -silent -o {{output}}",
+      "children": ["nuclei-1", "dalfox-1"],
+      "layer": 4,
+      "position": 0,
+      "parallel": false
+    },
+    {
+      "id": "ffuf-1",
+      "tool": "ffuf",
+      "args": "-u {{input}}/FUZZ -w ~/.local/share/termaid/wordlists/common/directories.txt -mc 200,204,301,302,307,401,403 -fc 404 -silent -o {{output}}",
+      "children": ["nuclei-2"],
+      "layer": 4,
+      "position": 1,
+      "parallel": true,
+      "subgraph": "content_discovery",
+      "sub_x": 0,
+      "sub_y": 0
+    },
+    {
+      "id": "gobuster-1",
+      "tool": "gobuster",
+      "args": "dir -u {{input}} -w ~/.local/share/termaid/wordlists/common/directories.txt -x php,html,txt,js -q -o {{output}}",
+      "children": ["nuclei-2"],
+      "layer": 4,
+      "position": 2,
+      "parallel": true,
+      "subgraph": "content_discovery",
+      "sub_x": 1,
+      "sub_y": 0
+    },
+    {
+      "id": "katana-1",
+      "tool": "katana",
+      "args": "-list {{input}} -jc -kf all -jsl -aff -silent -o {{output}}",
+      "children": ["nuclei-2"],
+      "layer": 4,
+      "position": 3,
+      "parallel": true,
+      "subgraph": "content_discovery",
+      "sub_x": 2,
+      "sub_y": 0
+    },
+    {
+      "id": "nuclei-1",
+      "tool": "nuclei",
+      "args": "-l {{input}} -t ~/nuclei-templates/ -severity high,critical -silent -o {{output}}",
+      "children": [],
+      "layer": 5,
+      "position": 0,
+      "parallel": true,
+      "subgraph": "vuln_scanning",
+      "sub_x": 0,
+      "sub_y": 0
+    },
+    {
+      "id": "dalfox-1",
+      "tool": "dalfox",
+      "args": "file {{input}} --skip-bav --format json -o {{output}}",
+      "children": [],
+      "layer": 5,
+      "position": 1,
+      "parallel": true,
+      "subgraph": "vuln_scanning",
+      "sub_x": 1,
+      "sub_y": 0
+    },
+    {
+      "id": "nuclei-2",
+      "tool": "nuclei",
+      "args": "-l {{input}} -t ~/nuclei-templates/ -severity medium,high,critical -silent -o {{output}}",
+      "children": [],
+      "layer": 5,
+      "position": 2,
+      "parallel": false
+    }
+  ]
+}

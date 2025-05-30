@@ -1,0 +1,25 @@
+{
+  "workflow": [
+    {
+      "id": "subfinder-1",
+      "tool": "subfinder",
+      "args": "-d {{domain}} -silent -o {{output}}",
+      "children": ["httpx-1"],
+      "layer": 1
+    },
+    {
+      "id": "httpx-1",
+      "tool": "httpx",
+      "args": "-l {{input}} -title -tech-detect -o {{output}}",
+      "children": ["nuclei-1"],
+      "layer": 2
+    },
+    {
+      "id": "nuclei-1",
+      "tool": "nuclei",
+      "args": "-l {{input}} -severity medium,high,critical -o {{output}}",
+      "children": [],
+      "layer": 3
+    }
+  ]
+}

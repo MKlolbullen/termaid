@@ -1,0 +1,89 @@
+{
+  "version": "2.0",
+  "matrix": {
+    "max_x": 3,
+    "max_y": 2
+  },
+  "subgraphs": [
+    {
+      "id": "subdomain_parallel",
+      "name": "Parallel Subdomain Discovery",
+      "parallel": true,
+      "nodes": ["subfinder-1", "assetfinder-1"]
+    },
+    {
+      "id": "scanning_parallel",
+      "name": "Parallel Vulnerability Scanning",
+      "parallel": true,
+      "nodes": ["nuclei-1", "httpx-1"]
+    }
+  ],
+  "workflow": [
+    {
+      "id": "subfinder-1",
+      "tool": "subfinder",
+      "args": "-d {{domain}} -silent -o {{output}}",
+      "children": ["httpx-1"],
+      "layer": 1,
+      "position": 0,
+      "parallel": true,
+      "subgraph": "subdomain_parallel",
+      "sub_x": 0,
+      "sub_y": 0
+    },
+    {
+      "id": "assetfinder-1",
+      "tool": "assetfinder",
+      "args": "--subs-only {{domain}} > {{output}}",
+      "children": ["httpx-1"],
+      "layer": 1,
+      "position": 1,
+      "parallel": true,
+      "subgraph": "subdomain_parallel",
+      "sub_x": 1,
+      "sub_y": 0
+    },
+    {
+      "id": "httpx-1",
+      "tool": "httpx",
+      "args": "-l {{input}} -title -tech-detect -json -silent -o {{output}}",
+      "children": ["nuclei-1", "ffuf-1"],
+      "layer": 2,
+      "position": 0,
+      "parallel": false
+    },
+    {
+      "id": "ffuf-1",
+      "tool": "ffuf",
+      "args": "-u {{input}}/FUZZ -w ~/.local/share/termaid/wordlists/common/directories.txt -mc 200,204,301,302,307,401,403 -fc 404 -silent -o {{output}}",
+      "children": ["nuclei-2"],
+      "layer": 2,
+      "position": 1,
+      "parallel": false
+    },
+    {
+      "id": "nuclei-1",
+      "tool": "nuclei",
+      "args": "-l {{input}} -severity medium,high,critical -silent -o {{output}}",
+      "children": [],
+      "layer": 3,
+      "position": 0,
+      "parallel": true,
+      "subgraph": "scanning_parallel",
+      "sub_x": 0,
+      "sub_y": 0
+    },
+    {
+      "id": "nuclei-2",
+      "tool": "nuclei",
+      "args": "-l {{input}} -t ~/nuclei-templates/http/ -severity high,critical -silent -o {{output}}",
+      "children": [],
+      "layer": 3,
+      "position": 1,
+      "parallel": true,
+      "subgraph": "scanning_parallel",
+      "sub_x": 1,
+      "sub_y": 0
+    }
+  ]
+}
