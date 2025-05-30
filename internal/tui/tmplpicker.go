@@ -1,50 +1,53 @@
 package tui
 
 import (
-	"context"
 	"path/filepath"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/MKlolbullen/termaid/internal/pipeline"
 )
 
+/*─────────────────────────────────────────────
+ *  TmplPicker lets you pick a workflow template.
+ * ─────────────────────────────────────────────*/
+
 type tmplPicker struct {
-	paths []string
+	files []string
 	list  list.Model
 }
 
-func newTmplPicker(paths []string) tmplPicker {
-	items := make([]list.Item, len(paths))
-	for i, p := range paths {
-		items[i] = entryItem{filepath.Base(p), p} // desc holds full path
+func newTmplPicker(files []string) tmplPicker {
+	items := make([]list.Item, len(files))
+	for i, f := range files {
+		items[i] = entryItem{filepath.Base(f), f}
 	}
-	l := list.New(items, list.NewDefaultDelegate(), 40, 15)
-	l.Title = "Templates (enter to run)"
-	return tmplPicker{paths, l}
+	l := list.New(items, list.NewDefaultDelegate(), 32, 12)
+	l.Title = "Select Workflow Template"
+	return tmplPicker{files, l}
 }
 
-func (t tmplPicker) Init() tea.Cmd { return nil }
+func (m tmplPicker) Init() tea.Cmd { return nil }
 
-func (t tmplPicker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if k, ok := msg.(tea.KeyMsg); ok && k.String() == "enter" {
-		path := t.list.SelectedItem().(entryItem).desc
-		dag, err := loadWorkflow(path)
-		if err != nil {
-			return errView(err), nil
+func (m tmplPicker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch v := msg.(type) {
+	case tea.KeyMsg:
+		if v.String() == "q" || v.String() == "ctrl+c" {
+			return NewMenu(), nil
 		}
-		cats := dagToCategories(dag)
-		ch := make(chan pipeline.Status, 128)
-		go func() {
-			_ = pipeline.Run(context.Background(), "input", "workdir", cats, 6, ch)
-			close(ch)
-		}()
-		return New(cats, ch), nil
+		if v.String() == "enter" {
+			selected := m.list.SelectedItem().(entryItem).desc // file path
+			domInput := textinput.New()
+			domInput.Placeholder = "target.com"
+			domInput.Focus()
+			return domainPrompt{input: domInput, template: selected}, nil
+		}
 	}
 	var cmd tea.Cmd
-	t.list, cmd = t.list.Update(msg)
-	return t, cmd
+	m.list, cmd = m.list.Update(msg)
+	return m, cmd
 }
 
-func (t tmplPicker) View() string { return t.list.View() }
+func (m tmplPicker) View() string {
+	return m.list.View()
+}

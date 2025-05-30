@@ -1,0 +1,10 @@
+{
+  "workflow": [
+    {"id":"nuclei-1","tool":"nuclei","args":"-l {{input}} -severity medium,high,critical -o {{output}}","children":["gauplus-1"],"layer":3},
+    {"id":"gauplus-1","tool":"gauplus","args":"-o {{output}} {{domain}}","children":["nuclei-2"],"layer":2},
+    {"id":"nuclei-2","tool":"nuclei","args":"","children":[],"layer":3},
+    {"id":"assetfinder-1","tool":"assetfinder","args":"--subs-only {{domain}} > {{output}}","children":["httprobe-1"],"layer":1},
+    {"id":"httprobe-1","tool":"httprobe","args":"-c 50 -p http:80 https:443 < {{input}} > {{output}}","children":["httpx-1"],"layer":2},
+    {"id":"httpx-1","tool":"httpx","args":"-l {{input}} -title -tech-detect -json -o {{output}}","children":["nuclei-1"],"layer":3}
+  ]
+}

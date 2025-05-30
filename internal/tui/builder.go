@@ -8,53 +8,82 @@ import (
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/MKlolbullen/termaid/internal/graph"
 )
 
+/*───────── styles ─────────────────────*/
+var (
+	borderAct   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("10"))
+	borderInact = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("8"))
+)
 
-/* ---------- Builder model ---------- */
+/*───────── Builder model ──────────────*/
+
+type focusArea int
+
+const (
+	fDomain focusArea = iota
+	fList
+	fCanvas
+	fArgs
+)
 
 type BuilderModel struct {
-	toolSel list.Model
-	argsInp textinput.Model
-	g       *graph.DAG
+	domainInp textinput.Model
+	toolSel   list.Model
+	argsInp   textinput.Model
+	canvas    viewport.Model
 
-	occ   map[string]int // tool → count
-	focus string         // list | dag | args
+	g   *graph.DAG
+	occ map[string]int
 
+	focus   focusArea
 	selNode string
 	layer   int
 	msg     string
 }
 
 func NewBuilder(toolNames []string) BuilderModel {
+	// domain field
+	dom := textinput.New()
+	dom.Placeholder = "example.com"
+	dom.Focus()
+
+	// tool list
 	items := make([]list.Item, len(toolNames))
 	for i, n := range toolNames {
 		items[i] = entryItem{n, ""}
 	}
-	sel := list.New(items, list.NewDefaultDelegate(), 28, 14)
+	sel := list.New(items, list.NewDefaultDelegate(), 30, 14)
 	sel.Title = "Tools"
 
-	inp := textinput.New()
-	inp.Placeholder = "args (press c to save)"
-	inp.Width = 40
+	// args field
+	arg := textinput.New()
+	arg.Placeholder = "args (press c to save)"
+	arg.Width = 38
+
+	// canvas viewport
+	cv := viewport.New(40, 14)
 
 	return BuilderModel{
-		toolSel: sel,
-		argsInp: inp,
-		g:       graph.NewDAG(),
-		occ:     make(map[string]int),
-		focus:   "list",
-		selNode: "input",
+		domainInp: dom,
+		toolSel:   sel,
+		argsInp:   arg,
+		canvas:    cv,
+		g:         graph.NewDAG(),
+		occ:       make(map[string]int),
+		focus:     fDomain,
+		selNode:   "input",
 	}
 }
 
 func (m BuilderModel) Init() tea.Cmd { return nil }
 
-/* ---------- Update ---------- */
+/*───────── Update ─────────────────────*/
 
 func (m BuilderModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch v := msg.(type) {
@@ -62,35 +91,29 @@ func (m BuilderModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch v.String() {
 
+		/* focus cycle */
 		case "tab":
-			switch m.focus {
-			case "list":
-				m.focus = "dag"
-			case "dag":
-				m.focus = "args"
-			default:
-				m.focus = "list"
-			}
+			m.focus = (m.focus + 1) % 4
+		case "shift+tab":
+			m.focus = (m.focus + 3) % 4
 
+		/* navigate layers */
 		case "up":
-			if m.focus == "dag" && m.layer > 0 {
+			if m.focus == fCanvas && m.layer > 0 {
 				m.layer--
 			}
 		case "down":
-			if m.focus == "dag" {
+			if m.focus == fCanvas {
 				m.layer++
 			}
 
 		/* add node */
 		case "n":
-			if m.focus == "list" {
+			if m.focus == fList {
 				tool := m.toolSel.SelectedItem().(entryItem).name
 				m.occ[tool]++
 				id := fmt.Sprintf("%s-%d", tool, m.occ[tool])
 				args := defaultArgs(tool)
-				if args == "" {
-					args = m.argsInp.Value()
-				}
 				if err := m.g.AddNode(m.selNode, id, tool, args, m.layer+1); err != nil {
 					m.msg = err.Error()
 				} else {
@@ -102,66 +125,110 @@ func (m BuilderModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		/* remove node */
 		case "r":
-			if m.focus == "dag" && m.selNode != "input" {
-				if err := m.g.RemoveNode(m.selNode); err != nil {
-					m.msg = err.Error()
-				} else {
-					m.selNode, m.layer = "input", 0
-					m.msg = "node removed"
-				}
+			if m.focus == fCanvas && m.selNode != "input" {
+				_ = m.g.RemoveNode(m.selNode)
+				m.selNode = "input"
+				m.layer = 0
 			}
 
 		/* commit args */
 		case "c":
-			if m.focus == "args" {
+			if m.focus == fArgs {
 				if n := m.g.Nodes[m.selNode]; n != nil {
 					n.Args = m.argsInp.Value()
-					m.msg = "args saved"
+					m.msg = "args updated"
 				}
 			}
 
-		/* finish / save */
+		/* finish */
 		case "f":
 			base := filepath.Join("workflows", "workflow-"+time.Now().Format("20060102-150405"))
 			_ = os.WriteFile(base+".mmd", []byte(m.g.ToMermaid()), 0644)
 			_ = os.WriteFile(base+".json", []byte(m.g.ToJSON()), 0644)
 			m.msg = "saved " + base + ".*"
 		}
+
 	}
 
-	// delegate internal components
+	/* delegate to subcomponents */
 	switch m.focus {
-	case "list":
+	case fDomain:
+		m.domainInp, _ = m.domainInp.Update(msg)
+	case fList:
 		m.toolSel, _ = m.toolSel.Update(msg)
-	case "args":
+	case fArgs:
 		m.argsInp, _ = m.argsInp.Update(msg)
+	case fCanvas:
+		m.canvas, _ = m.canvas.Update(msg)
 	}
+
+	/* update canvas content */
+	m.canvas.SetContent(renderLayerView(m.g, m.layer, m.selNode))
+
 	return m, nil
 }
 
-/* ---------- View ---------- */
+/*───────── View ───────────────────────*/
 
 func (m BuilderModel) View() string {
-	left := m.toolSel.View()
+	// domain bar
+	domainBar := maybeBorder(m.domainInp.View(), m.focus == fDomain)
 
-	right := lipgloss.NewStyle().Bold(true).Render("Workflow:") + "\n"
-	for l := 0; l <= m.layer+1; l++ {
-		row := m.g.GetLayer(l)
-		if len(row) == 0 {
-			continue
-		}
-		right += fmt.Sprintf("[L%d] ", l)
-		for _, id := range row {
-			style := lipgloss.NewStyle()
-			if id == m.selNode {
-				style = style.Foreground(lipgloss.Color("10"))
-			}
-			right += style.Render(id) + " "
-		}
-		right += "\n"
-	}
-	right += "\nArgs: " + m.argsInp.View()
+	// left column (domain + list)
+	left := lipgloss.JoinVertical(lipgloss.Top,
+		domainBar,
+		maybeBorder(m.toolSel.View(), m.focus == fList),
+	)
+
+	// right column (canvas + args)
+	right := lipgloss.JoinVertical(lipgloss.Top,
+		maybeBorder(m.canvas.View(), m.focus == fCanvas),
+		maybeBorder("Args: "+m.argsInp.View(), m.focus == fArgs),
+	)
+
+	help := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("8")).
+		Render("↑/↓ n=add r=rm c=args f=save tab=next shift+tab=prev")
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, right) +
-		"\n\n" + m.msg
+		"\n" + help + "\n" + m.msg
+}
+
+/*───────── helpers ────────────────────*/
+
+func maybeBorder(content string, active bool) string {
+	if active {
+		return borderAct.Render(content)
+	}
+	return borderInact.Render(content)
+}
+
+func renderLayerView(g *graph.DAG, focusLayer int, sel string) string {
+	var out string
+	max := 0
+	for _, n := range g.Nodes {
+		if n.Layer > max {
+			max = n.Layer
+		}
+	}
+	for l := 0; l <= max; l++ {
+		nodes := g.GetLayer(l)
+		prefix := "  "
+		if l == focusLayer {
+			prefix = "→ "
+		}
+		out += prefix + fmt.Sprintf("L%d: ", l)
+		for i, id := range nodes {
+			name := id
+			if id == sel {
+				name = lipgloss.NewStyle().Underline(true).Render(id)
+			}
+			out += name
+			if i < len(nodes)-1 {
+				out += ", "
+			}
+		}
+		out += "\n"
+	}
+	return out
 }

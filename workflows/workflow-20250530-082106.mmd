@@ -1,0 +1,22 @@
+graph TD
+  subgraph L0
+    input
+  end
+  subgraph L1
+    assetfinder-1
+  end
+  subgraph L2
+    gauplus-1
+    httprobe-1
+  end
+  subgraph L3
+    httpx-1
+    nuclei-1
+    nuclei-2
+  end
+  httpx-1 --> nuclei-1
+  nuclei-1 --> gauplus-1
+  gauplus-1 --> nuclei-2
+  input --> assetfinder-1
+  assetfinder-1 --> httprobe-1
+  httprobe-1 --> httpx-1

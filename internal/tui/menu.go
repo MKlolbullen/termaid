@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -18,10 +19,10 @@ import (
 	"github.com/MKlolbullen/termaid/internal/pipeline"
 )
 
-/* list.Item wrapper */
+/*───────── entryItem ────────────────────────────────────────────────────────*/
+// moved to catalog.go
 
-
-/* Menu model */
+/*───────── Menu model ───────────────────────────────────────────────────────*/
 
 type MenuModel struct{ choices list.Model }
 
@@ -53,7 +54,11 @@ func (m MenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.choices.SelectedItem().(entryItem).name {
 
 		case "Run Workflow":
-			return runWorkflow("workflow.json")
+			// ask for domain first
+			domInput := textinput.New()
+			domInput.Placeholder = "target.com"
+			domInput.Focus()
+			return domainPrompt{input: domInput, template: "workflow.json"}, nil
 
 		case "Run Template":
 			files, _ := filepath.Glob("workflows/*.json")
@@ -77,11 +82,39 @@ func (m MenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m MenuModel) View() string {
 	title := lipgloss.NewStyle().Bold(true).
-		Foreground(lipgloss.Color("14")).Render("termaid")
+		Foreground(lipgloss.Color("14")).Render("Termaid")
 	return title + "\n\n" + m.choices.View()
 }
 
-/* helpers ------------------------------------------------------- */
+/*───────── domainPrompt ──────────────────────────────────────────────────────*/
+
+type domainPrompt struct {
+	input    textinput.Model
+	template string
+}
+
+func (d domainPrompt) Init() tea.Cmd { return nil }
+
+func (d domainPrompt) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch v := msg.(type) {
+	case tea.KeyMsg:
+		switch v.String() {
+		case "enter":
+			return runWorkflowWithDomain(d.template, d.input.Value())
+		case "esc":
+			return NewMenu(), nil
+		}
+	}
+	var cmd tea.Cmd
+	d.input, cmd = d.input.Update(msg)
+	return d, cmd
+}
+
+func (d domainPrompt) View() string {
+	return "Enter target domain:\n\n" + d.input.View() + "\n\n[enter] to continue • [esc] cancel"
+}
+
+/*───────── helpers ──────────────────────────────────────────────────────────*/
 
 func catalogueNames() []string {
 	out := make([]string, len(catalog))
@@ -114,6 +147,10 @@ func loadWorkflow(path string) (*graph.DAG, error) {
 }
 
 func runWorkflow(path string) (tea.Model, tea.Cmd) {
+	return runWorkflowWithDomain(path, "")
+}
+
+func runWorkflowWithDomain(path, domain string) (tea.Model, tea.Cmd) {
 	dag, err := loadWorkflow(path)
 	if err != nil {
 		return errView(err), nil
@@ -122,7 +159,7 @@ func runWorkflow(path string) (tea.Model, tea.Cmd) {
 
 	ch := make(chan pipeline.Status, 128)
 	go func() {
-		_ = pipeline.Run(context.Background(), "input", "workdir", cats, 6, ch)
+		_ = pipeline.Run(context.Background(), domain, "workdir", cats, 6, ch)
 		close(ch)
 	}()
 	return New(cats, ch), nil
@@ -154,10 +191,10 @@ func dagToCategories(g *graph.DAG) []pipeline.Category {
 		for _, n := range g.Nodes {
 			if n.Layer == l {
 				tools = append(tools, pipeline.Tool{
-					Name:     n.ID, // node ID
+					Name:     n.ID,
 					Command:  n.Tool,
 					Args:     strings.Fields(n.Args),
-					Output:   fmt.Sprintf("%s_%s.txt", n.Tool, n.ID), // unique output
+					Output:   fmt.Sprintf("%s_%s.txt", n.Tool, n.ID),
 					Parallel: true,
 				})
 			}
@@ -170,7 +207,7 @@ func dagToCategories(g *graph.DAG) []pipeline.Category {
 	return cats
 }
 
-/* error model */
+/*───────── errorModel ───────────────────────────────────────────────────────*/
 
 type errorModel struct{ err error }
 
