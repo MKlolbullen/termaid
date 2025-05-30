@@ -1,0 +1,87 @@
+{
+  "workflow": [
+    /* ────── LAYER 0 ────── */
+    {
+      "id":        "input",
+      "tool":      "input",
+      "args":      "",
+      "children":  ["subfinder-1", "assetfinder-1"],
+      "layer":     0
+    },
+
+    /* ────── LAYER 1 ────── */
+    {
+      "id":       "subfinder-1",
+      "tool":     "subfinder",
+      "args":     "-d {{domain}} -silent -o {{output}}",
+      "children": ["merge-1"],
+      "layer":    1
+    },
+    {
+      "id":       "assetfinder-1",
+      "tool":     "assetfinder",
+      "args":     "--subs-only {{domain}} > {{output}}",
+      "children": ["merge-1"],
+      "layer":    1
+    },
+
+    /* ────── LAYER 2 ────── */
+    {
+      "id":       "merge-1",
+      "tool":     "merge-sort",              /* your merge script */
+      "args":     "{{stdin}} {{output}}",    /* script reads stdin, dedups, writes */
+      "children": ["katana-1"],
+      "layer":    2
+    },
+
+    /* ────── LAYER 3 ────── */
+    {
+      "id":       "katana-1",
+      "tool":     "katana",
+      "args":     "-list {{input}} -jc -o {{output}}",
+      "children": ["merge-2"],
+      "layer":    3
+    },
+
+    /* ────── LAYER 4 ────── */
+    {
+      "id":       "merge-2",
+      "tool":     "merge-sort",
+      "args":     "{{stdin}} {{output}}",
+      "children": ["nuclei-1", "cariddi-1", "appendfuzz-1"],
+      "layer":    4
+    },
+
+    /* ────── LAYER 5 ────── */
+    {
+      "id":       "nuclei-1",
+      "tool":     "nuclei",
+      "args":     "-l {{input}} -t ~/nuclei-templates/ -o {{output}}",
+      "children": [],
+      "layer":    5
+    },
+    {
+      "id":       "cariddi-1",
+      "tool":     "cariddi",
+      "args":     "-s -e -ext 4 -rua -intensive -info -ot {{output}} -l {{input}}",
+      "children": [],
+      "layer":    5
+    },
+    {
+      "id":       "appendfuzz-1",
+      "tool":     "append-fuzz",             /* custom grep/replace script */
+      "args":     "{{stdin}} {{output}}",
+      "children": ["openredirex-1"],
+      "layer":    5
+    },
+
+    /* ────── LAYER 6 ────── */
+    {
+      "id":       "openredirex-1",
+      "tool":     "openredirex",
+      "args":     "-i {{input}} -p ~/tools/openredirex/payloads.txt -o {{output}}",
+      "children": [],
+      "layer":    6
+    }
+  ]
+}
