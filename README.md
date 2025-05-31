@@ -1,6 +1,14 @@
 # Termaid
 
+**Termaid is a term (pun intended) for Terminal-Mermaid. I started fooling around with mermaid charts and realized that they're a super convient way to create automation templates (using https://mermaid.live - it's basically drag-n-drop + AI. Termaid is that and so, so much more. I've tried to create a trickest-like platform, using https://charm.sh libraries to make it look, feel and act fantastic.**
+
+**Termaid**: a next-level, terminal-native automation framework for bug bounty hunters and penetration testers. 🌐🎯
+Build workflows, execute recon, and chain your favorite tools — all from a sleek, interactive TUI.
+No mouse, no fuss — just pure hacker speed.
 A terminal-based bug bounty hunting automation tool with visual workflow management using Mermaid charts. Build, visualize, and execute complex reconnaissance pipelines entirely from your terminal.
+
+## Credits
+Since this platform is a work in progress and was greatly inspired by trickest.io, a web-based platform that does this, only not hosted locally but in their much fancier web interface, but not everyone can afford the subscription plan, or perhaps hosting locally is preferred by some? Either way, Thank you Trickest, projectdiscovery, obviously mermaid charts and A LOT of insanely talented hackers, crackers and subjackers... And some developers as well, check out my stars/follows for some of the ones I really appreciate.
 
 ## Features
 
