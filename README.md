@@ -192,15 +192,50 @@ Workflows are JSON files with the following structure:
 
 ```
 termaid/
-├── assets/
-│   └── tools.yaml          # Tool catalog definitions
-├── workflows/              # Saved workflow templates
-├── internal/
-│   ├── tui/               # Terminal UI components
-│   ├── graph/             # DAG management
-│   └── pipeline/          # Execution engine
-├── workdir/               # Runtime output directory
-└── cmd/termaid/           # Main application
+├── LICENSE
+├── MATRIX_SYSTEM.md
+├── README.md
+├── VISUAL_EDITOR.md
+├── assets
+│   └── tools.yaml
+├── cmd
+│   ├── demo
+│   │   └── main.go
+│   ├── responsive-demo
+│   │   └── main.go
+│   ├── termaid
+│   │   └── main.go
+│   └── tui-test
+│       └── main.go
+├── go.mod
+├── go.sum
+├── install.sh
+├── internal
+│   ├── graph
+│   │   ├── dag.go
+│   │   └── render.go
+│   ├── pipeline
+│   │   ├── dataflow.go
+│   │   └── pipeline.go
+│   └── tui
+│       ├── builder.go
+│       ├── catalog.go
+│       ├── menu.go
+│       ├── model.go
+│       ├── responsive.go
+│       └── tmplpicker.go
+├── structure.md
+├── templates
+│   ├── README.md
+│   └── webapp-comprehensive-scan.json
+├── workflow.json
+├── workflow.mmd
+└── workflows
+    ├── advanced-recon.json
+    ├── matrix-parallel-recon.json
+    ├── mypreset1.json
+    ├── quick-subdomains.json
+    ├── simple-test.json
 ```
 
 ## Configuration
