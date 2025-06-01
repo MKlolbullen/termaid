@@ -1,311 +1,436 @@
+# ─── Make this configuration your own, and for your sake, make sure you configure
+#      the in/out parameters correctly, as very important as they're crucial for how
+#      input and output act, you don't want a masscan going to sqlmap, haha... Hack on! 🤟
 # ─── DNS / Subdomain discovery ───────────────────────────────────────────────
 - name: alterx
   cat: DNS
+  in:  domain
+  out: subdomains
   desc: Subdomain permutation generator
   def: ""
 
 - name: amass
   cat: DNS
+  in:  domain
+  out: subdomains
   desc: Passive & active subdomain enumeration
-  def: "enum -d {{domain}} -o {{output}}"
+  def: "enum -passive -d {{domain}} -o {{output}}"
 
 - name: assetfinder
   cat: DNS
+  in:  domain
+  out: subdomains
   desc: Find subdomains via crt.sh, certspotter
   def: "--subs-only {{domain}} > {{output}}"
 
 - name: bbot
   cat: DNS
+  in:  domain
+  out: subdomains
   desc: Modular OSINT & recon framework
   def: "scan {{domain}} -o {{output}}"
 
 - name: chaos-client
   cat: DNS
+  in:  domain
+  out: subdomains
   desc: Fetch subdomains from Chaos dataset
   def: "-d {{domain}} -o {{output}}"
 
 - name: dnsx
   cat: DNS
+  in:  subdomains
+  out: hosts
   desc: Blazing-fast DNS resolver/prober
-  def: "-l {{input}} -o {{output}}"
+  def: "-l {{input}} -resp -a -aaaa -cname -o {{output}}"
 
 - name: jsubfinder
   cat: DNS
+  in:  domain
+  out: subdomains
   desc: Subdomain finder in Go
   def: "-d {{domain}} -o {{output}}"
 
 - name: massdns
   cat: DNS
+  in:  subdomains
+  out: hosts
   desc: Very fast DNS brute-forcer
   def: "-r resolvers.txt -t A -o S -w {{output}} {{input}}"
 
 - name: subfinder
   cat: DNS
+  in:  domain
+  out: subdomains
   desc: Fast passive subdomain enumeration
   def: "-d {{domain}} -silent -o {{output}}"
 
 - name: subjack
   cat: DNS
+  in:  hosts
+  out: hosts
   desc: Subdomain takeover checker
   def: "-w {{input}} -ssl -c fingerprints.json -o {{output}}"
 
 - name: subover
   cat: DNS
+  in:  hosts
+  out: hosts
   desc: Another subdomain takeover tester
   def: "-l {{input}} -o {{output}}"
 
 - name: subzy
   cat: DNS
+  in:  hosts
+  out: hosts
   desc: Subdomain takeover detection & monitor
   def: "-targets {{input}} -o {{output}}"
 
 - name: uncover
   cat: DNS
+  in:  domain
+  out: subdomains
   desc: Shodan/Fofa/Censys reverse search
   def: "-q {{domain}} -o {{output}}"
 
-# ─── Port-scanning / Probing ─────────────────────────────────────────────────
+# ─── Port-scanning / Probing ────────────────────────────────────────────────
 - name: httpx
   cat: Port-scan
+  in:  hosts
+  out: urls
   desc: HTTP probe & tech fingerprint
   def: "-l {{input}} -title -tech-detect -json -o {{output}}"
 
 - name: httprobe
   cat: Port-scan
+  in:  hosts
+  out: urls
   desc: Quick HTTP(S) checker
   def: "-c 50 -p http:80 https:443 < {{input}} > {{output}}"
 
 - name: naabu
   cat: Port-scan
+  in:  hosts
+  out: hosts
   desc: Fast TCP scanner
-  def: "-l {{input}} -top-ports 100 -o {{output}}"
+  def: "-l {{input}} -top-ports 1000 -o {{output}}"
 
 - name: nmap
   cat: Port-scan
+  in:  hosts
+  out: hosts
   desc: Classic network scanner
   def: "-sV -T4 -iL {{input}} -oN {{output}}"
 
 - name: smuggler
   cat: Port-scan
+  in:  urls
+  out: urls
   desc: HTTP request smuggling tester
   def: "-u {{input}} > {{output}}"
 
-# ─── Crawling / URL gathering ────────────────────────────────────────────────
+# ─── Crawling / URL gathering ───────────────────────────────────────────────
 - name: gau
   cat: URLs
+  in:  domain
+  out: urls
   desc: Historical URL grabber
-  def: "{{domain}} > {{output}}"
+  def: "--blacklist png,jpg,gif,jpeg,swf,woff,gif,svg,pdf,json,css {{domain}} > {{output}}"
 
 - name: gauplus
   cat: URLs
+  in:  domain
+  out: urls
   desc: gau fork with added providers
   def: "-o {{output}} {{domain}}"
 
 - name: gospider
   cat: URLs
+  in:  urls
+  out: urls
   desc: Fast web spider
   def: "-S {{input}} -o {{output}} -c 20"
 
 - name: katana
   cat: URLs
+  in:  urls
+  out: urls
   desc: High-speed JS-aware crawler
   def: "-list {{input}} -jc -o {{output}}"
 
 - name: Photon
   cat: URLs
+  in:  domain
+  out: urls
   desc: Crawl site & collect endpoints
   def: "-u {{domain}} -o {{output}}"
 
 - name: urx
   cat: URLs
+  in:  js
+  out: urls
   desc: JS URL extractor (bbot module)
   def: "{{input}} > {{output}}"
 
 - name: urlfinder
   cat: URLs
+  in:  js
+  out: urls
   desc: Extract URLs from JS code
   def: "-file {{input}} > {{output}}"
 
 - name: waymore
   cat: URLs
+  in:  domain
+  out: urls
   desc: Wayback/CommonCrawl miner
   def: "-i {{domain}} -o {{output}}"
 
-# ─── Parameter discovery ─────────────────────────────────────────────────────
+# ─── Parameter discovery ────────────────────────────────────────────────────
 - name: arjun
   cat: Params
+  in:  urls
+  out: params
   desc: Guess unknown API parameters
-  def: "-i {{input}} -oT {{output}}"
+  def: "-i {{input}} -oT {{output}} --stable"
 
 - name: JSFinder
   cat: Params
+  in:  js
+  out: params
   desc: JS parameter extractor
   def: "-l {{input}} -o {{output}}"
 
 - name: Linkfinder
   cat: Params
+  in:  js
+  out: urls
   desc: Regex endpoint finder
   def: "-i {{input}} -o {{output}} -r"
 
 - name: oralyzer
   cat: Params
+  in:  urls
+  out: urls
   desc: Open-redirect analyser
   def: "-l {{input}} -o {{output}}"
 
 - name: parameth
   cat: Params
+  in:  urls
+  out: params
   desc: HTTP parameter brute-forcer
   def: "-u {{domain}} -o {{output}}"
 
 - name: paramspider
   cat: Params
+  in:  domain
+  out: params
   desc: Discover URL parameters
   def: "-d {{domain}} -o {{output}}"
 
 - name: unfurl
   cat: Params
+  in:  urls
+  out: params
   desc: URL component parser
   def: "keys < {{input}} > {{output}}"
 
 # ─── Fuzzing / Content discovery ─────────────────────────────────────────────
 - name: cariddi
   cat: Fuzz
+  in:  urls
+  out: urls
   desc: Param fuzz + LFI/SSRF checks
   def: "-l {{input}} -o {{output}}"
 
 - name: cloakquest3r
   cat: Fuzz
+  in:  domain
+  out: urls
   desc: Front-end crawler (CLQ3R)
   def: "-u {{domain}} -o {{output}}"
 
 - name: Corsy
   cat: Fuzz
+  in:  urls
+  out: urls
   desc: CORS misconfiguration finder
   def: "-i {{input}} -o {{output}}"
 
 - name: ffuf
   cat: Fuzz
+  in:  urls
+  out: urls
   desc: Directory/parameter fuzzer
-  def: "-u https://{{domain}}/FUZZ -w ~/dicts/raft-small-words.txt -mc 200,301,302,403 -o {{output}}"
+  def: "-u {{input}}/FUZZ -w ~/dicts/raft-small-words.txt -mc 200,301,302,403 -o {{output}}"
 
 - name: gobuster
   cat: Fuzz
+  in:  urls
+  out: urls
   desc: Dir & DNS brute-forcer
-  def: "dir -u https://{{domain}} -w /usr/share/wordlists/dirbuster/directory-list-2.3-small.txt -o {{output}}"
+  def: "dir -u {{input}} -w /usr/share/wordlists/dirbuster/directory-list-2.3-small.txt -o {{output}}"
 
 - name: kiterunner
   cat: Fuzz
+  in:  urls
+  out: urls
   desc: Smart wordlist brute for APIs
   def: "-targets {{input}} -wordlists routes-large.kite -output {{output}}"
 
 # ─── Vulnerability scanning ──────────────────────────────────────────────────
 - name: crlfuzz
   cat: Vuln-scan
+  in:  urls
+  out: urls
   desc: CRLF injection / response-split
   def: "-l {{input}} -o {{output}}"
 
 - name: dalfox
   cat: Vuln-scan
+  in:  params
+  out: params
   desc: DOM & reflected XSS scanner
-  def: "file {{input}} --skip-bav -o {{output}}"
+  def: "file {{input}} --skip-bav --format json -o {{output}}"
 
 - name: favirecon
   cat: Vuln-scan
+  in:  hosts
+  out: hosts
   desc: Favicon hash recon
   def: "-i {{input}} -o {{output}}"
 
 - name: inql
   cat: Vuln-scan
+  in:  urls
+  out: urls
   desc: GraphQL introspection & fuzz
   def: "-t {{input}} -o {{output}}"
 
 - name: jwks-hunter
   cat: Vuln-scan
+  in:  hosts
+  out: urls
   desc: JWKS/JWT misconfig finder
   def: "-l {{input}} -o {{output}}"
 
 - name: kxss
   cat: Vuln-scan
+  in:  urls
+  out: urls
   desc: Reflection diff → XSS finder
   def: "-i {{input}} > {{output}}"
 
 - name: nuclei
   cat: Vuln-scan
+  in:  hosts
+  out: hosts
   desc: Template-based vulnerability scanner
   def: "-l {{input}} -severity medium,high,critical -o {{output}}"
 
 - name: scan4all
   cat: Vuln-scan
+  in:  hosts
+  out: hosts
   desc: All-in-one auto scanner
   def: "-i {{input}} -o {{output}}"
 
 - name: smuggler
   cat: Vuln-scan
+  in:  urls
+  out: urls
   desc: HTTP request-smuggling hunter
   def: "-u {{input}} > {{output}}"
 
 - name: sniper
   cat: Vuln-scan
+  in:  domain
+  out: urls
   desc: Automated pentest framework
   def: "-t {{domain}} -o {{output}}"
 
 - name: sqlmap
   cat: Vuln-scan
+  in:  params
+  out: params
   desc: Automatic SQL injection exploitation
   def: "-m {{input}} --batch -o {{output}}"
 
 - name: SSRFire
   cat: Vuln-scan
+  in:  urls
+  out: urls
   desc: Automated SSRF scanner
   def: "-l {{input}} -o {{output}}"
 
 - name: tsunami
   cat: Vuln-scan
+  in:  hosts
+  out: hosts
   desc: Google Tsunami security scanner
   def: "-target {{input}} -o {{output}}"
 
 - name: wafw00f
   cat: Vuln-scan
+  in:  hosts
+  out: hosts
   desc: WAF & CDN detector
   def: "-i {{input}} -o {{output}}"
 
 - name: XSStrike
   cat: Vuln-scan
+  in:  urls
+  out: urls
   desc: Advanced XSS exploitation suite
   def: "-l {{input}} -o {{output}}"
 
 - name: xsrfprobe
   cat: Vuln-scan
+  in:  urls
+  out: urls
   desc: CSRF scanner
   def: "-l {{input}} -o {{output}}"
 
 # ─── Utilities ───────────────────────────────────────────────────────────────
 - name: aquatone
   cat: Utilities
+  in:  hosts
+  out: raw
   desc: HTTP screenshot & report
   def: "take -lists {{input}} -out {{output}}"
 
 - name: gf
   cat: Utilities
+  in:  urls
+  out: urls
   desc: Pattern-based grep helper
   def: "xss < {{input}} > {{output}}"
 
 - name: gowitness
   cat: Utilities
+  in:  hosts
+  out: raw
   desc: Headless screenshot utility
   def: "file -f {{input}} --timeout 10 --destination {{output}}"
 
 - name: puredns
   cat: Utilities
+  in:  subdomains
+  out: hosts
   desc: Wordlist conditioner & resolver
   def: "resolve {{input}} -r resolvers.txt -w {{output}}"
 
 - name: trufflehog
   cat: Utilities
+  in:  raw
+  out: raw
   desc: Search for secrets / keys
   def: "filesystem --directory {{input}} > {{output}}"
 
 - name: whatweb
   cat: Utilities
+  in:  hosts
+  out: hosts
   desc: Website tech fingerprint
   def: "-i {{input}} -oT {{output}}"
