@@ -257,7 +257,8 @@ func (m *BuilderModel) handleKeys(k tea.KeyMsg) {
 			switch ks {
 			case "/":
 				m.filterMode = true
-				m.filterBox.Reset(); m.filterBox.Focus()
+				m.filterBox.Reset()
+				m.filterBox.Focus()
 			case "tab":
 				m.focus = fCanvas
 			}
@@ -391,8 +392,20 @@ func styleCell(m *BuilderModel, id string, active bool) string {
 			Border(lipgloss.HiddenBorder()).
 			Padding(0, 2).Render(" ")
 	}
-	inT := catalogMap[m.g.Nodes[id].Tool].In
-	outT := catalogMap[m.g.Nodes[id].Tool].Out
+	node, okNode := m.g.Nodes[id]
+	if !okNode {
+		return lipgloss.NewStyle().
+			Border(lipgloss.HiddenBorder()).
+			Padding(0, 2).Render("?")
+	}
+	entry, okEntry := catalogMap[node.Tool]
+	if !okEntry {
+		return lipgloss.NewStyle().
+			Border(lipgloss.HiddenBorder()).
+			Padding(0, 2).Render("?")
+	}
+	inT := entry.In
+	outT := entry.Out
 
 	st := lipgloss.
 		NewStyle().
@@ -534,12 +547,26 @@ func (m *BuilderModel) applyFilter(cat string) {
 /*──────── type check ─────────────────────*/
 
 func canPipe(parentID, childTool string) bool {
-	pOut := catalogMap[parentIDTool(parentID)].Out
-	cIn := catalogMap[childTool].In
-	if pOut == "raw" || cIn == "raw" { return true }
+	parentKey := parentIDTool(parentID)
+	parentEntry, ok1 := catalogMap[parentKey]
+	childEntry, ok2 := catalogMap[childTool]
+	if !ok1 || !ok2 {
+		return false
+	}
+	pOut := parentEntry.Out
+	cIn := childEntry.In
+	if pOut == "raw" || cIn == "raw" {
+		return true
+	}
 	return pOut == cIn
 }
-func parentIDTool(id string) string { return catalogMap[id].Name }
+
+func parentIDTool(id string) string {
+	if entry, ok := catalogMap[id]; ok {
+		return entry.Name
+	}
+	return ""
+}
 
 /*──────── hit-test helpers ───────────────*/
 
@@ -552,7 +579,7 @@ func headerIndex(v tea.MouseMsg) int { return v.X / 10 }
 func listRow(v tea.MouseMsg) int     { return v.Y - 3 }
 
 func canvasCoord(v tea.MouseMsg, vp viewport.Model) (int, int) {
-	x := (v.X - 46 + vp.XOffset) / 6
+	x := (v.X - 46 + vp.XOffset) / 8 // 8 chars per cell
 	y := (v.Y - 3 + vp.YOffset)
 	return x, y
 }
@@ -584,5 +611,7 @@ func idAtCursor(m BuilderModel) string {
 	return ""
 }
 
-func stripAnsi(s string) string { return lipgloss.NewStyle().Unset().
-	UnsetBorder().UnsetMargin().UnsetPadding().Render(s) }
+func stripAnsi(s string) string {
+	return lipgloss.NewStyle().Unset().
+		UnsetBorder().UnsetMargin().UnsetPadding().Render(s)
+}
