@@ -1,0 +1,98 @@
+diff --git a/internal/tui/builder.go b/internal/tui/builder.go
+index 3010b29..a1b4c5f 100644
+--- a/internal/tui/builder.go
++++ b/internal/tui/builder.go
+@@ ... @@
+-func canPipe(parentID, childTool string) bool {
+-	pOut := catalogMap[parentIDTool(parentID)].Out
+-	cIn := catalogMap[childTool].In
+-	if pOut == "raw" || cIn == "raw" { return true }
+-	return pOut == cIn
+-}
+-func parentIDTool(id string) string { return catalogMap[id].Name }
++func canPipe(parentID, childTool string) bool {
++	parentKey := parentIDTool(parentID)
++	parentEntry, ok1 := catalogMap[parentKey]
++	childEntry, ok2 := catalogMap[childTool]
++	if !ok1 || !ok2 {
++		return false
++	}
++	pOut := parentEntry.Out
++	cIn := childEntry.In
++	if pOut == "raw" || cIn == "raw" {
++		return true
++	}
++	return pOut == cIn
++}
++func parentIDTool(id string) string {
++	if entry, ok := catalogMap[id]; ok {
++		return entry.Name
++	}
++	return ""
++}
+@@ ... @@
+-func styleCell(m *BuilderModel, id string, active bool) string {
+-	if id == "" {
+-		return lipgloss.NewStyle().
+-			Border(lipgloss.HiddenBorder()).
+-			Padding(0, 2).Render(" ")
+-	}
+-	inT := catalogMap[m.g.Nodes[id].Tool].In
+-	outT := catalogMap[m.g.Nodes[id].Tool].Out
+-
+-	st := lipgloss.
+-		NewStyle().
+-		BorderLeft(true).BorderRight(true).
+-		BorderForeground(lipgloss.Color(inTypeColor[inT])).
+-		BorderRightForeground(lipgloss.Color(inTypeColor[outT])).
+-		Padding(0, 1)
+-
+-	if active {
+-		st = st.Bold(true)
+-	}
+-	return st.Render(id)
+-}
++func styleCell(m *BuilderModel, id string, active bool) string {
++	if id == "" {
++		return lipgloss.NewStyle().
++			Border(lipgloss.HiddenBorder()).
++			Padding(0, 2).Render(" ")
++	}
++	node, okNode := m.g.Nodes[id]
++	if !okNode {
++		return lipgloss.NewStyle().
++			Border(lipgloss.HiddenBorder()).
++			Padding(0, 2).Render("?")
++	}
++	entry, okEntry := catalogMap[node.Tool]
++	if !okEntry {
++		return lipgloss.NewStyle().
++			Border(lipgloss.HiddenBorder()).
++			Padding(0, 2).Render("?")
++	}
++	inT := entry.In
++	outT := entry.Out
++
++	st := lipgloss.
++		NewStyle().
++		BorderLeft(true).BorderRight(true).
++		BorderForeground(lipgloss.Color(inTypeColor[inT])).
++		BorderRightForeground(lipgloss.Color(inTypeColor[outT])).
++		Padding(0, 1)
++
++	if active {
++		st = st.Bold(true)
++	}
++	return st.Render(id)
++}
+@@ ... @@
+-func canvasCoord(v tea.MouseMsg, vp viewport.Model) (int, int) {
+-	x := (v.X - 46 + vp.XOffset) / 6
+-	y := (v.Y - 3 + vp.YOffset)
+-	return x, y
+-}
++func canvasCoord(v tea.MouseMsg, vp viewport.Model) (int, int) {
++	x := (v.X - 46 + vp.XOffset) / 8 // 8 chars per cell
++	y := (v.Y - 3 + vp.YOffset)
++	return x, y
++}
