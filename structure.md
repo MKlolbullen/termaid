@@ -1,3 +1,4 @@
+```markdown
 termaid/
 ├── assets/
 │   └── tools.yaml        # tool catalogue + default args
@@ -18,3 +19,4 @@ termaid/
 │       └── pipeline.go
 ├── install.sh            # installer (bash)
 └── README.md
+```
