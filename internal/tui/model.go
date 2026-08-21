@@ -13,11 +13,9 @@ import (
 	"github.com/MKlolbullen/termaid/internal/pipeline"
 )
 
-/* ────────────────── Progress + Log Model ─────────────────────── */
-
 type Model struct {
 	cats  []pipeline.Category
-	state map[string]pipeline.StatusUpdateType // node ID → status
+	state map[string]pipeline.StatusUpdateType
 
 	logBuf  bytes.Buffer
 	vp      viewport.Model
@@ -31,41 +29,38 @@ type Model struct {
 type doneMsg struct{}
 
 func New(cats []pipeline.Category, ch <-chan pipeline.Status) Model {
-	vp := viewport.New(0, 10) // width set later
+	vp := viewport.New(0, 10)
 	vp.SetContent("")
-
 	return Model{
-		cats:     cats,
-		state:    make(map[string]pipeline.StatusUpdateType),
-		vp:       vp,
-		statusCh: ch,
-		logPath:  fmt.Sprintf("run-%d.log", time.Now().Unix()),
+		cats: cats, state: make(map[string]pipeline.StatusUpdateType), vp: vp,
+		statusCh: ch, logPath: fmt.Sprintf("run-%d.log", time.Now().Unix()),
 	}
 }
 
-func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.nextStatus(), viewport.Sync(m.vp))
-}
+func (m Model) Init() tea.Cmd { return tea.Batch(m.nextStatus(), viewport.Sync(m.vp)) }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch v := msg.(type) {
-
 	case pipeline.Status:
 		m.state[v.Tool] = v.Type
-		line := fmt.Sprintf("[%s] %-15s %s", v.Category, v.Tool, statusWord(v))
-		if v.Type == pipeline.StatusError {
+		line := fmt.Sprintf("[%s] %-20s %s", v.Category, v.Tool, statusWord(v))
+		switch v.Type {
+		case pipeline.StatusError:
 			line = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(line)
+		case pipeline.StatusSkip:
+			line = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(line)
+		}
+		if v.Err != nil && (v.Type == pipeline.StatusError || v.Type == pipeline.StatusSkip) {
+			line += " — " + v.Err.Error()
 		}
 		m.logBuf.WriteString(line + "\n")
 		m.vp.SetContent(m.logBuf.String())
 		m.vp.GotoBottom()
 		return m, m.nextStatus()
-
 	case doneMsg:
 		m.done = true
 		m.flushLog()
 		return m, nil
-
 	case tea.KeyMsg:
 		switch v.String() {
 		case "q":
@@ -87,23 +82,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	chart := m.renderChart()
-
 	if m.vp.Width == 0 {
 		m.vp.Width = lipgloss.Width(chart)
 	}
-
-	footer := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("8")).
-		Render("[tab] logs • [q] quit")
-
+	footer := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("[tab] logs • [q] quit")
 	if m.showLog {
-		title := lipgloss.NewStyle().Bold(true).Render("Live Output (↑/↓ PgUp/PgDn)")
+		title := lipgloss.NewStyle().Bold(true).Render("Live DAG Output (↑/↓ PgUp/PgDn)")
 		return chart + "\n" + title + "\n" + m.vp.View() + "\n" + footer
 	}
 	return chart + "\n" + footer
 }
-
-/* ────────────────── helpers ───────────────────── */
 
 func (m Model) nextStatus() tea.Cmd {
 	return func() tea.Msg {
@@ -114,9 +102,7 @@ func (m Model) nextStatus() tea.Cmd {
 	}
 }
 
-func (m Model) flushLog() {
-	_ = os.WriteFile(m.logPath, m.logBuf.Bytes(), 0644)
-}
+func (m Model) flushLog() { _ = os.WriteFile(m.logPath, m.logBuf.Bytes(), 0o644) }
 
 func statusWord(s pipeline.Status) string {
 	switch s.Type {
@@ -124,6 +110,8 @@ func statusWord(s pipeline.Status) string {
 		return "started"
 	case pipeline.StatusFinish:
 		return "done"
+	case pipeline.StatusSkip:
+		return "skipped"
 	case pipeline.StatusError:
 		return "error"
 	default:
@@ -143,15 +131,17 @@ func (m Model) renderChart() string {
 			out += "--> "
 		}
 		for j, t := range cat.Tools {
-			id := t.Name // node ID
+			id := t.Name
 			style := lipgloss.NewStyle()
 			switch m.state[id] {
 			case pipeline.StatusStart:
-				style = style.Foreground(lipgloss.Color("11")) // yellow
+				style = style.Foreground(lipgloss.Color("11"))
 			case pipeline.StatusFinish:
-				style = style.Foreground(lipgloss.Color("10")) // green
+				style = style.Foreground(lipgloss.Color("10"))
+			case pipeline.StatusSkip:
+				style = style.Foreground(lipgloss.Color("8"))
 			case pipeline.StatusError:
-				style = style.Foreground(lipgloss.Color("9")) // red
+				style = style.Foreground(lipgloss.Color("9"))
 			}
 			out += style.Render(id)
 			if j != len(cat.Tools)-1 {
