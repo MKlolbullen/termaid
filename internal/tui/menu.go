@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,26 +18,17 @@ import (
 	"github.com/MKlolbullen/termaid/internal/pipeline"
 )
 
-/*───────── entryItem ────────────────────────────────────────────────────────*/
-// moved to catalog.go
-
-/*───────── Menu model ───────────────────────────────────────────────────────*/
-
 type MenuModel struct{ choices list.Model }
 
 func NewMenu() MenuModel {
-	// Count available templates
 	templateCount := 0
 	if files, err := filepath.Glob("workflows/*.json"); err == nil {
 		templateCount = len(files)
 	}
-
-	// Check if default workflow exists
 	defaultExists := "✗"
 	if _, err := os.Stat("workflow.json"); err == nil {
 		defaultExists = "✓"
 	}
-
 	l := list.New([]list.Item{
 		entryItem{"🚀 Run Default Workflow", fmt.Sprintf("Execute workflow.json [%s available]", defaultExists)},
 		entryItem{"📋 Run Template", fmt.Sprintf("Choose from %d saved templates", templateCount)},
@@ -56,7 +46,6 @@ func (m MenuModel) Init() tea.Cmd { return nil }
 
 func (m MenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch v := msg.(type) {
-
 	case tea.KeyMsg:
 		if v.String() == "q" || v.String() == "ctrl+c" {
 			return m, tea.Quit
@@ -64,71 +53,45 @@ func (m MenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if v.String() != "enter" {
 			break
 		}
-
 		switch m.choices.SelectedItem().(entryItem).name {
-
 		case "🚀 Run Default Workflow":
-			// check if workflow.json exists
 			if _, err := os.Stat("workflow.json"); os.IsNotExist(err) {
 				return errView(fmt.Errorf("workflow.json not found - please create a workflow first or use a template")), nil
 			}
-			// ask for domain first
 			domInput := textinput.New()
 			domInput.Placeholder = "target.com"
 			domInput.Focus()
 			return domainPrompt{input: domInput, template: "workflow.json"}, nil
-
 		case "📋 Run Template":
 			files, _ := filepath.Glob("workflows/*.json")
 			return newTmplPicker(files), nil
-
 		case "👁️  Preview Workflow":
 			if _, err := os.Stat("workflow.mmd"); os.IsNotExist(err) {
 				return errView(fmt.Errorf("workflow.mmd not found - please create a workflow first")), nil
 			}
 			return previewMermaid()
-
 		case "🛠️  Create Workflow":
 			return NewBuilder(catalogueNames()), nil
-
 		case "📊 View Results":
 			return m.viewResults()
-
 		case "🧹 Clean Workdir":
 			return m.cleanWorkdir()
-
 		case "❌ Exit":
 			return m, tea.Quit
 		}
 	}
-
 	var cmd tea.Cmd
 	m.choices, cmd = m.choices.Update(msg)
 	return m, cmd
 }
 
 func (m MenuModel) View() string {
-	// Enhanced header with version and status
-	header := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("14")).
-		Render("Termaid v1.0") + " " +
-		lipgloss.NewStyle().
-			Foreground(lipgloss.Color("8")).
-			Render("- Bug Bounty Automation Platform")
-
-	// Status information
+	header := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14")).Render("Termaid v1.2") + " " +
+		lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("- Typed DAG Security Automation")
 	statusInfo := m.getStatusInfo()
-
-	// Footer with keyboard shortcuts
-	footer := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("8")).
-		Render("↑/↓ navigate • enter select • q quit")
-
+	footer := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("↑/↓ navigate • enter select • q quit")
 	return header + "\n" + statusInfo + "\n" + m.choices.View() + "\n" + footer
 }
-
-/*───────── domainPrompt ──────────────────────────────────────────────────────*/
 
 type domainPrompt struct {
 	input    textinput.Model
@@ -136,7 +99,6 @@ type domainPrompt struct {
 }
 
 func (d domainPrompt) Init() tea.Cmd { return nil }
-
 func (d domainPrompt) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch v := msg.(type) {
 	case tea.KeyMsg:
@@ -151,12 +113,9 @@ func (d domainPrompt) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	d.input, cmd = d.input.Update(msg)
 	return d, cmd
 }
-
 func (d domainPrompt) View() string {
 	return "Enter target domain:\n\n" + d.input.View() + "\n\n[enter] to continue • [esc] cancel"
 }
-
-/*───────── helpers ──────────────────────────────────────────────────────────*/
 
 func catalogueNames() []string {
 	out := make([]string, len(catalog))
@@ -167,110 +126,34 @@ func catalogueNames() []string {
 	return out
 }
 
-func LoadWorkflow(path string) (*graph.DAG, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
+// LoadWorkflow remains the compatibility entry point used by the visual
+// builder/tests, but delegates to the v2/v3 semantic loader.
+func LoadWorkflow(path string) (*graph.DAG, error) { return LoadWorkflowV3(path) }
 
-	// Try new format first
-	var newFormat struct {
-		Version string `json:"version"`
-		Matrix  struct {
-			MaxX int `json:"max_x"`
-			MaxY int `json:"max_y"`
-		} `json:"matrix"`
-		Subgraphs []struct {
-			ID       string   `json:"id"`
-			Name     string   `json:"name"`
-			Parallel bool     `json:"parallel"`
-			Nodes    []string `json:"nodes"`
-		} `json:"subgraphs"`
-		Workflow []graph.Node `json:"workflow"`
-	}
-
-	if err := json.Unmarshal(data, &newFormat); err == nil && newFormat.Version == "2.0" {
-		// New format with matrix positioning
-		g := graph.NewDAG()
-		g.MaxX = newFormat.Matrix.MaxX
-		g.MaxY = newFormat.Matrix.MaxY
-
-		// Load subgraphs
-		for _, sg := range newFormat.Subgraphs {
-			g.Subgraphs[sg.ID] = &graph.SubgraphInfo{
-				ID:       sg.ID,
-				Name:     sg.Name,
-				Parallel: sg.Parallel,
-				Nodes:    sg.Nodes,
-				Matrix:   make(map[string]graph.Coordinate),
-			}
-		}
-
-		// Load nodes
-		for _, n := range newFormat.Workflow {
-			cp := n
-			g.Nodes[n.ID] = &cp
-			g.Matrix[graph.Coordinate{X: n.Layer, Y: n.Position}] = append(
-				g.Matrix[graph.Coordinate{X: n.Layer, Y: n.Position}], &cp)
-		}
-
-		return g, nil
-	}
-
-	// Fallback to old format
-	var oldFormat struct {
-		Workflow []graph.Node `json:"workflow"`
-	}
-	if err := json.Unmarshal(data, &oldFormat); err != nil {
-		return nil, err
-	}
-
-	g := graph.NewDAG()
-	for _, n := range oldFormat.Workflow {
-		cp := n
-		// Convert old format: no position field, so auto-assign
-		if cp.Position == 0 && cp.ID != "input" {
-			cp.Position = g.GetNextPosition(cp.Layer, cp.Subgraph)
-		}
-		g.Nodes[n.ID] = &cp
-		g.Matrix[graph.Coordinate{X: cp.Layer, Y: cp.Position}] = append(
-			g.Matrix[graph.Coordinate{X: cp.Layer, Y: cp.Position}], &cp)
-		g.UpdateBounds(cp.Layer, cp.Position)
-	}
-
-	return g, nil
-}
-
-func runWorkflow(path string) (tea.Model, tea.Cmd) {
-	return runWorkflowWithDomain(path, "")
-}
+func runWorkflow(path string) (tea.Model, tea.Cmd) { return runWorkflowWithDomain(path, "") }
 
 func runWorkflowWithDomain(path, domain string) (tea.Model, tea.Cmd) {
 	if domain == "" {
 		return errView(fmt.Errorf("domain cannot be empty")), nil
 	}
-
-	dag, err := LoadWorkflow(path)
+	dag, err := LoadWorkflowV3(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return errView(fmt.Errorf("workflow file '%s' not found - please create a workflow first", path)), nil
 		}
 		return errView(fmt.Errorf("failed to load workflow '%s': %w", path, err)), nil
 	}
-
+	if err := dag.Validate(); err != nil {
+		return errView(fmt.Errorf("workflow '%s' is invalid: %w", path, err)), nil
+	}
 	cats := dagToCategories(dag)
 	if len(cats) == 0 {
-		return errView(fmt.Errorf("workflow '%s' contains no valid tools to execute", path)), nil
+		return errView(fmt.Errorf("workflow '%s' contains no executable nodes", path)), nil
 	}
-
 	ch := make(chan pipeline.Status, 128)
 	go func() {
-		if err := pipeline.Run(context.Background(), domain, "workdir", cats, 6, ch); err != nil {
-			ch <- pipeline.Status{
-				Type: pipeline.StatusError,
-				Tool: "pipeline",
-				Err:  err,
-			}
+		if err := pipeline.RunDAG(context.Background(), domain, "workdir", dag, pipeline.RunConfig{Concurrency: 6}, ch); err != nil {
+			ch <- pipeline.Status{Type: pipeline.StatusError, Tool: "pipeline", Category: "scheduler", Err: err}
 		}
 		close(ch)
 	}()
@@ -278,17 +161,26 @@ func runWorkflowWithDomain(path, domain string) (tea.Model, tea.Cmd) {
 }
 
 func previewMermaid() (tea.Model, tea.Cmd) {
+	// Prefer the JSON source so semantic conditions/kinds are visible. Fall back
+	// to workflow.mmd for legacy projects.
+	if _, err := os.Stat("workflow.json"); err == nil {
+		mmd, loadErr := MermaidForWorkflow("workflow.json")
+		if loadErr == nil {
+			return previewMermaidText(mmd)
+		}
+	}
 	raw, err := os.ReadFile("workflow.mmd")
 	if err != nil {
 		return errView(fmt.Errorf("failed to read workflow.mmd: %w", err)), nil
 	}
+	return previewMermaidText(string(raw))
+}
 
-	// Check if glow is available
+func previewMermaidText(raw string) (tea.Model, tea.Cmd) {
 	if _, err := exec.LookPath("glow"); err != nil {
 		return errView(fmt.Errorf("glow command not found - please install glow to preview mermaid diagrams")), nil
 	}
-
-	md := "```mermaid\n" + string(raw) + "\n```"
+	md := "```mermaid\n" + raw + "\n```"
 	cmd := exec.Command("glow", "-")
 	cmd.Stdin = strings.NewReader(md)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
@@ -298,98 +190,58 @@ func previewMermaid() (tea.Model, tea.Cmd) {
 	return NewMenu(), nil
 }
 
+// dagToCategories is now presentation-only. Execution order comes from RunDAG.
 func dagToCategories(g *graph.DAG) []pipeline.Category {
-	if g.MaxX == 0 {
-		return []pipeline.Category{}
-	}
-
 	var cats []pipeline.Category
-
-	// Use execution order from matrix positioning
-	executionOrder := g.GetExecutionOrder()
-
-	for stepNum, nodeGroup := range executionOrder {
-		if len(nodeGroup) == 0 {
+	for layer := 1; layer <= g.MaxX; layer++ {
+		ids := g.GetLayer(layer)
+		if len(ids) == 0 {
 			continue
 		}
-
 		var tools []pipeline.Tool
-		categoryName := fmt.Sprintf("step-%d", stepNum+1)
-
-		// Check if this is a parallel group
-		isParallel := len(nodeGroup) > 1
-		if !isParallel && len(nodeGroup) == 1 {
-			if node, exists := g.Nodes[nodeGroup[0]]; exists {
-				isParallel = node.Parallel
+		for _, id := range ids {
+			n := g.Nodes[id]
+			if n == nil || id == g.Root {
+				continue
 			}
-		}
-
-		for _, nodeID := range nodeGroup {
-			if node, exists := g.Nodes[nodeID]; exists && node.ID != g.Root {
-				tools = append(tools, pipeline.Tool{
-					Name:     node.ID,
-					Command:  node.Tool,
-					Args:     strings.Fields(node.Args),
-					Output:   fmt.Sprintf("%s_%s.txt", node.Tool, node.ID),
-					Parallel: isParallel,
-				})
+			command := n.Tool
+			if command == "" {
+				command = "builtin:" + string(n.EffectiveKind())
 			}
-		}
-
-		if len(tools) > 0 {
-			// Add layer info to category name for clarity
-			if len(nodeGroup) > 0 {
-				if node, exists := g.Nodes[nodeGroup[0]]; exists {
-					categoryName = fmt.Sprintf("layer-%d-step-%d", node.Layer, stepNum+1)
-				}
-			}
-
-			cats = append(cats, pipeline.Category{
-				Name:  categoryName,
-				Tools: tools,
+			tools = append(tools, pipeline.Tool{
+				Name: id, Command: command, Args: strings.Fields(n.Args),
+				Output: fmt.Sprintf("%s_%s.txt", command, id), Parallel: len(ids) > 1,
 			})
 		}
+		if len(tools) > 0 {
+			cats = append(cats, pipeline.Category{Name: fmt.Sprintf("layer-%d", layer), Tools: tools})
+		}
 	}
-
 	return cats
 }
 
-/*───────── New menu methods ─────────────────────────────────────────────────*/
-
 func (m MenuModel) getStatusInfo() string {
 	var status []string
-
-	// Check workflow status
 	if _, err := os.Stat("workflow.json"); err == nil {
 		status = append(status, "✓ Default workflow ready")
 	} else {
 		status = append(status, "⚠ No default workflow")
 	}
-
-	// Count templates
 	if files, err := filepath.Glob("workflows/*.json"); err == nil && len(files) > 0 {
 		status = append(status, fmt.Sprintf("✓ %d templates available", len(files)))
 	} else {
 		status = append(status, "⚠ No templates found")
 	}
-
-	// Check for recent results
 	if _, err := os.Stat("workdir"); err == nil {
 		status = append(status, "✓ Previous results available")
 	}
-
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("8")).
-		Render(strings.Join(status, " | "))
+	return lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(strings.Join(status, " | "))
 }
 
 func (m MenuModel) viewResults() (tea.Model, tea.Cmd) {
-	// Check if workdir exists
 	if _, err := os.Stat("workdir"); os.IsNotExist(err) {
 		return errView(fmt.Errorf("no results found - run a workflow first")), nil
 	}
-
-	// Open file browser or list recent runs
 	return errView(fmt.Errorf("results viewer not yet implemented - check ./workdir manually")), nil
 }
 
@@ -397,23 +249,16 @@ func (m MenuModel) cleanWorkdir() (tea.Model, tea.Cmd) {
 	if err := os.RemoveAll("workdir"); err != nil {
 		return errView(fmt.Errorf("failed to clean workdir: %w", err)), nil
 	}
-
-	// Also clean log files
 	if logs, err := filepath.Glob("run-*.log"); err == nil {
 		for _, log := range logs {
-			os.Remove(log)
+			_ = os.Remove(log)
 		}
 	}
-
 	return errView(fmt.Errorf("workdir cleaned successfully")), nil
 }
 
-/*───────── errorModel ───────────────────────────────────────────────────────*/
-
 type errorModel struct{ err error }
-
 func errView(e error) tea.Model { return errorModel{e} }
-
 func (e errorModel) Init() tea.Cmd                       { return nil }
 func (e errorModel) Update(tea.Msg) (tea.Model, tea.Cmd) { return e, tea.Quit }
 func (e errorModel) View() string                        { return "Error: " + e.err.Error() }
