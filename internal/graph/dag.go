@@ -24,22 +24,22 @@ type Coordinate struct {
 
 // SubgraphInfo contains metadata about a subgraph
 type SubgraphInfo struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
-	Nodes       []string          `json:"nodes"`
-	Parallel    bool              `json:"parallel"`
+	ID          string                `json:"id"`
+	Name        string                `json:"name"`
+	Description string                `json:"description"`
+	Nodes       []string              `json:"nodes"`
+	Parallel    bool                  `json:"parallel"`
 	Matrix      map[string]Coordinate `json:"matrix"` // node_id -> local coordinate
 }
 
 // DAG is a directed acyclic graph of nodes with matrix positioning.
 type DAG struct {
-	Nodes     map[string]*Node            `json:"nodes"`
-	Root      string                      `json:"root"`
-	Matrix    map[Coordinate][]*Node      `json:"matrix"`    // coordinate -> nodes at position
-	Subgraphs map[string]*SubgraphInfo    `json:"subgraphs"` // subgraph_id -> info
-	MaxX      int                         `json:"max_x"`     // maximum layer
-	MaxY      int                         `json:"max_y"`     // maximum position in any layer
+	Nodes     map[string]*Node         `json:"nodes"`
+	Root      string                   `json:"root"`
+	Matrix    map[Coordinate][]*Node   `json:"matrix"`    // coordinate -> nodes at position
+	Subgraphs map[string]*SubgraphInfo `json:"subgraphs"` // subgraph_id -> info
+	MaxX      int                      `json:"max_x"`     // maximum layer
+	MaxY      int                      `json:"max_y"`     // maximum position in any layer
 }
 
 // NewDAG with an implicit "input" root.
@@ -77,12 +77,12 @@ func (g *DAG) AddNodeAtPosition(parentID, nodeID, tool, args string, layer, posi
 	if _, dup := g.Nodes[nodeID]; dup {
 		return fmt.Errorf("node %q already exists", nodeID)
 	}
-	
+
 	// Auto-assign position if not specified
 	if position == -1 {
 		position = g.getNextPosition(layer, subgraph)
 	}
-	
+
 	node := &Node{
 		ID:       nodeID,
 		Tool:     tool,
@@ -93,7 +93,7 @@ func (g *DAG) AddNodeAtPosition(parentID, nodeID, tool, args string, layer, posi
 		Subgraph: subgraph,
 		Parallel: parallel,
 	}
-	
+
 	// Set subgraph coordinates if in subgraph
 	if subgraph != "" {
 		if sg, exists := g.Subgraphs[subgraph]; exists {
@@ -114,12 +114,12 @@ func (g *DAG) AddNodeAtPosition(parentID, nodeID, tool, args string, layer, posi
 		}
 		g.Subgraphs[subgraph].Matrix[nodeID] = Coordinate{X: node.SubX, Y: node.SubY}
 	}
-	
+
 	g.Nodes[nodeID] = node
 	g.Nodes[parentID].Children = append(g.Nodes[parentID].Children, nodeID)
 	g.addToMatrix(node)
 	g.updateBounds(layer, position)
-	
+
 	return nil
 }
 
@@ -191,18 +191,18 @@ func (g *DAG) MoveNode(nodeID string, newLayer, newPosition int) error {
 	if !exists {
 		return fmt.Errorf("node %q not found", nodeID)
 	}
-	
+
 	// Remove from current position
 	g.removeFromMatrix(node)
-	
+
 	// Update coordinates
 	node.Layer = newLayer
 	node.Position = newPosition
-	
+
 	// Add to new position
 	g.addToMatrix(node)
 	g.updateBounds(newLayer, newPosition)
-	
+
 	return nil
 }
 
@@ -214,7 +214,7 @@ func (g *DAG) CompactLayer(layer int) {
 			nodes = append(nodes, node)
 		}
 	}
-	
+
 	// Sort by current position
 	for i := 0; i < len(nodes)-1; i++ {
 		for j := i + 1; j < len(nodes); j++ {
@@ -223,21 +223,21 @@ func (g *DAG) CompactLayer(layer int) {
 			}
 		}
 	}
-	
+
 	// Reassign positions sequentially
 	for i, node := range nodes {
 		g.removeFromMatrix(node)
 		node.Position = i
 		g.addToMatrix(node)
 	}
-	
+
 	g.recalculateBounds()
 }
 
 // GetExecutionOrder returns the optimal execution order considering matrix positioning.
 func (g *DAG) GetExecutionOrder() [][]string {
 	var order [][]string
-	
+
 	for layer := 0; layer <= g.MaxX; layer++ {
 		layerGroups := g.GetParallelNodes(layer)
 		for _, group := range layerGroups {
@@ -250,7 +250,7 @@ func (g *DAG) GetExecutionOrder() [][]string {
 			}
 		}
 	}
-	
+
 	return order
 }
 
@@ -262,13 +262,13 @@ func (g *DAG) ValidateMatrix() error {
 			// Multiple nodes at same coordinate - check if they're all parallel
 			for _, node := range nodes {
 				if !node.Parallel {
-					return fmt.Errorf("non-parallel node %s conflicts with other nodes at coordinate (%d,%d)", 
+					return fmt.Errorf("non-parallel node %s conflicts with other nodes at coordinate (%d,%d)",
 						node.ID, coord.X, coord.Y)
 				}
 			}
 		}
 	}
-	
+
 	// Check if all nodes are in matrix
 	for _, node := range g.Nodes {
 		coord := Coordinate{X: node.Layer, Y: node.Position}
@@ -282,11 +282,11 @@ func (g *DAG) ValidateMatrix() error {
 			}
 		}
 		if !found {
-			return fmt.Errorf("node %s not found in matrix at coordinate (%d,%d)", 
+			return fmt.Errorf("node %s not found in matrix at coordinate (%d,%d)",
 				node.ID, coord.X, coord.Y)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -295,16 +295,16 @@ func (g *DAG) RemoveNode(id string) error {
 	if id == g.Root {
 		return fmt.Errorf("cannot remove root")
 	}
-	
+
 	// Get node before deletion
 	node, exists := g.Nodes[id]
 	if !exists {
 		return fmt.Errorf("node %q not found", id)
 	}
-	
+
 	// Remove from matrix
 	g.removeFromMatrix(node)
-	
+
 	// Remove from subgraph if applicable
 	if node.Subgraph != "" {
 		if sg, exists := g.Subgraphs[node.Subgraph]; exists {
@@ -316,17 +316,17 @@ func (g *DAG) RemoveNode(id string) error {
 				}
 			}
 			delete(sg.Matrix, id)
-			
+
 			// Remove subgraph if empty
 			if len(sg.Nodes) == 0 {
 				delete(g.Subgraphs, node.Subgraph)
 			}
 		}
 	}
-	
+
 	// Remove node
 	delete(g.Nodes, id)
-	
+
 	// Remove from all children lists
 	for _, n := range g.Nodes {
 		dst := n.Children[:0]
@@ -337,10 +337,10 @@ func (g *DAG) RemoveNode(id string) error {
 		}
 		n.Children = dst
 	}
-	
+
 	// Recalculate bounds
 	g.recalculateBounds()
-	
+
 	return nil
 }
 
@@ -352,7 +352,7 @@ func (g *DAG) GetLayer(l int) []string {
 			nodes = append(nodes, n)
 		}
 	}
-	
+
 	// Sort by position (Y coordinate)
 	for i := 0; i < len(nodes)-1; i++ {
 		for j := i + 1; j < len(nodes); j++ {
@@ -361,7 +361,7 @@ func (g *DAG) GetLayer(l int) []string {
 			}
 		}
 	}
-	
+
 	ids := make([]string, len(nodes))
 	for i, n := range nodes {
 		ids[i] = n.ID
@@ -419,28 +419,57 @@ func (g *DAG) UpdateBounds(layer, position int) {
 	}
 }
 
-// GetParallelNodes returns nodes that can run in parallel at the same layer.
+// MaxLayer returns the highest layer index currently in use (X axis).
+func (g *DAG) MaxLayer() int { return g.MaxX }
+
+// RemoveFromLayer detaches a node from the coordinate matrix without deleting
+// it from the graph, so it can be re-inserted at a new position.
+func (g *DAG) RemoveFromLayer(id string) {
+	if node, ok := g.Nodes[id]; ok {
+		g.removeFromMatrix(node)
+	}
+}
+
+// InsertAtLayer places an existing node at the given layer/position and
+// re-registers it in the matrix.
+func (g *DAG) InsertAtLayer(id string, layer, position int) {
+	node, ok := g.Nodes[id]
+	if !ok {
+		return
+	}
+	node.Layer = layer
+	node.Position = position
+	g.addToMatrix(node)
+	g.updateBounds(layer, position)
+}
+
+// GetParallelNodes groups the nodes of a layer by how they execute. All
+// parallel nodes in the layer share a single concurrent group (regardless of
+// their vertical position), while each non-parallel node forms its own group
+// that runs sequentially.
 func (g *DAG) GetParallelNodes(layer int) [][]*Node {
 	layerMatrix := g.GetLayerMatrix(layer)
 	var groups [][]*Node
-	
+	parallelGroup := []*Node{}
+
 	for pos := 0; pos <= g.MaxY; pos++ {
-		if nodes, exists := layerMatrix[pos]; exists {
-			parallelGroup := []*Node{}
-			for _, node := range nodes {
-				if node.Parallel {
-					parallelGroup = append(parallelGroup, node)
-				} else {
-					// Non-parallel nodes get their own group
-					groups = append(groups, []*Node{node})
-				}
-			}
-			if len(parallelGroup) > 0 {
-				groups = append(groups, parallelGroup)
+		nodes, exists := layerMatrix[pos]
+		if !exists {
+			continue
+		}
+		for _, node := range nodes {
+			if node.Parallel {
+				parallelGroup = append(parallelGroup, node)
+			} else {
+				groups = append(groups, []*Node{node})
 			}
 		}
 	}
-	
+
+	if len(parallelGroup) > 0 {
+		groups = append(groups, parallelGroup)
+	}
+
 	return groups
 }
 
@@ -453,17 +482,17 @@ func (g *DAG) GetSubgraphNodes(subgraphID string) []*Node {
 				nodes = append(nodes, node)
 			}
 		}
-		
+
 		// Sort by subgraph coordinates
 		for i := 0; i < len(nodes)-1; i++ {
 			for j := i + 1; j < len(nodes); j++ {
-				if nodes[i].SubX > nodes[j].SubX || 
-				   (nodes[i].SubX == nodes[j].SubX && nodes[i].SubY > nodes[j].SubY) {
+				if nodes[i].SubX > nodes[j].SubX ||
+					(nodes[i].SubX == nodes[j].SubX && nodes[i].SubY > nodes[j].SubY) {
 					nodes[i], nodes[j] = nodes[j], nodes[i]
 				}
 			}
 		}
-		
+
 		return nodes
 	}
 	return []*Node{}

@@ -25,7 +25,7 @@ Since this platform is a work in progress and was greatly inspired by trickest.i
 
 ### Prerequisites
 
-- Go 1.22+ 
+- Go 1.24+
 - Python 3.x
 - Node.js (for some tools)
 - Common bug bounty tools (subfinder, httpx, nuclei, etc.)
@@ -48,13 +48,19 @@ The installer will:
 ### Manual Build
 
 ```bash
-go mod tidy
 go build -o termaid ./cmd/termaid
+# or, with the Makefile:
+make build          # compile ./termaid
+make install        # install into ~/.local/bin
+make test           # run the test suite
 ```
+
+The tool catalog (`assets/tools.yaml`) is embedded into the binary at build
+time, so `termaid` runs correctly from any working directory.
 
 ## Usage
 
-Launch the TUI:
+Launch the interactive TUI:
 
 ```bash
 ./termaid
@@ -67,6 +73,42 @@ Launch the TUI:
 3. **Preview Workflow** - View Mermaid diagram of current workflow
 4. **Create Workflow** - Open the visual workflow builder
 5. **Exit** - Quit the application
+
+## Command-Line (Headless) Mode
+
+Termaid can be driven entirely from the command line, which makes it easy to
+script and to run in CI. Running with no arguments launches the TUI; any
+subcommand runs headlessly.
+
+```bash
+# Execute a workflow against a target, writing results under ./workdir
+termaid run -d example.com -w workflow.json -o workdir -c 6
+
+# Print the Mermaid diagram for a workflow (JSON or .mmd)
+termaid preview -w workflow.json
+
+# List the tool catalog (optionally filtered by category)
+termaid tools
+termaid tools -cat discovery
+
+# Validate a workflow file's structure
+termaid validate -w workflow.json
+
+# Version / help
+termaid version
+termaid help
+```
+
+| Command    | Flags                                   | Description                                  |
+|------------|-----------------------------------------|----------------------------------------------|
+| `run`      | `-d` domain (required), `-w`, `-o`, `-c` | Execute a workflow headlessly                |
+| `preview`  | `-w`                                    | Print a workflow's Mermaid diagram           |
+| `tools`    | `-cat`                                  | List the embedded tool catalog               |
+| `validate` | `-w`                                    | Check a workflow file for structural issues  |
+
+`termaid run` streams per-tool status to stdout and exits non-zero on a fatal
+error, so it composes well with shell pipelines and CI steps. Press `Ctrl-C`
+to cancel a run cleanly.
 
 ## Workflow Builder
 
@@ -156,9 +198,18 @@ Workflows are JSON files with the following structure:
 
 ### Placeholders
 
-- `{{domain}}` - Target domain
-- `{{input}}` - Input file from previous layer
-- `{{output}}` - Output file for current tool
+Two equivalent placeholder styles are supported; use whichever you prefer.
+
+| Canonical    | Catalog form      | Meaning                                |
+|--------------|-------------------|----------------------------------------|
+| `{{domain}}` | `$(target)`       | Target domain (first line of the input) |
+| `{{input}}`  | `$(target_file)`  | Input file produced by the previous layer |
+| `{{output}}` | `$(output)`       | Output file for the current tool        |
+
+If a tool's arguments contain no output placeholder, Termaid captures the
+tool's **stdout** into its output file automatically — so tools that stream
+results (e.g. `-o -`) work without any extra configuration. Each layer's tool
+outputs are merged and de-duplicated before being handed to the next layer.
 
 ## Examples
 

@@ -28,13 +28,13 @@ func (g *DAG) generateSubgraphs(b *strings.Builder) {
 	for sgID, sg := range g.Subgraphs {
 		if len(sg.Nodes) > 0 {
 			fmt.Fprintf(b, "  subgraph %s[\"%s\"]\n", sgID, sg.Name)
-			
+
 			// Sort nodes by subgraph coordinates
 			nodes := g.GetSubgraphNodes(sgID)
 			for _, node := range nodes {
 				fmt.Fprintf(b, "    %s[\"%s\\n%s\"]\n", node.ID, node.Tool, truncateArgs(node.Args))
 			}
-			
+
 			b.WriteString("  end\n")
 		}
 	}
@@ -44,14 +44,14 @@ func (g *DAG) generateSubgraphs(b *strings.Builder) {
 func (g *DAG) generateLayers(b *strings.Builder) {
 	for layer := 0; layer <= g.MaxX; layer++ {
 		layerMatrix := g.GetLayerMatrix(layer)
-		
+
 		if len(layerMatrix) == 0 {
 			continue
 		}
-		
+
 		// Create layer subgraph
 		fmt.Fprintf(b, "  subgraph L%d[\"Layer %d\"]\n", layer, layer)
-		
+
 		// Process positions in order
 		for pos := 0; pos <= g.MaxY; pos++ {
 			if nodes, exists := layerMatrix[pos]; exists {
@@ -59,7 +59,7 @@ func (g *DAG) generateLayers(b *strings.Builder) {
 					// Single node at position
 					node := nodes[0]
 					if node.Subgraph == "" { // Only render if not in a subgraph
-						fmt.Fprintf(b, "    %s[\"%s\\n%s\"]\n", 
+						fmt.Fprintf(b, "    %s[\"%s\\n%s\"]\n",
 							node.ID, node.Tool, truncateArgs(node.Args))
 					}
 				} else if len(nodes) > 1 {
@@ -67,7 +67,7 @@ func (g *DAG) generateLayers(b *strings.Builder) {
 					fmt.Fprintf(b, "    subgraph P%d_%d[\"Parallel Group\"]\n", layer, pos)
 					for _, node := range nodes {
 						if node.Subgraph == "" {
-							fmt.Fprintf(b, "      %s[\"%s\\n%s\"]\n", 
+							fmt.Fprintf(b, "      %s[\"%s\\n%s\"]\n",
 								node.ID, node.Tool, truncateArgs(node.Args))
 						}
 					}
@@ -75,7 +75,7 @@ func (g *DAG) generateLayers(b *strings.Builder) {
 				}
 			}
 		}
-		
+
 		b.WriteString("  end\n")
 	}
 }
@@ -87,7 +87,7 @@ func (g *DAG) generateEdges(b *strings.Builder) {
 	for _, node := range g.Nodes {
 		sortedNodes = append(sortedNodes, node)
 	}
-	
+
 	// Sort by layer then position
 	sort.Slice(sortedNodes, func(i, j int) bool {
 		if sortedNodes[i].Layer != sortedNodes[j].Layer {
@@ -95,7 +95,7 @@ func (g *DAG) generateEdges(b *strings.Builder) {
 		}
 		return sortedNodes[i].Position < sortedNodes[j].Position
 	})
-	
+
 	for _, node := range sortedNodes {
 		for _, childID := range node.Children {
 			if child, exists := g.Nodes[childID]; exists {
@@ -103,10 +103,10 @@ func (g *DAG) generateEdges(b *strings.Builder) {
 				edgeStyle := "-->"
 				if child.Parallel && len(node.Children) > 1 {
 					edgeStyle = "-.->|parallel|"
-				} else if child.Layer == node.Layer + 1 {
+				} else if child.Layer == node.Layer+1 {
 					edgeStyle = "-->|sequential|"
 				}
-				
+
 				fmt.Fprintf(b, "  %s %s %s\n", node.ID, edgeStyle, childID)
 			}
 		}
@@ -130,7 +130,7 @@ func (g *DAG) ToJSON() string {
 	b.WriteString(fmt.Sprintf("    \"max_x\": %d,\n", g.MaxX))
 	b.WriteString(fmt.Sprintf("    \"max_y\": %d\n", g.MaxY))
 	b.WriteString("  },\n")
-	
+
 	// Export subgraphs
 	if len(g.Subgraphs) > 0 {
 		b.WriteString("  \"subgraphs\": [\n")
@@ -145,11 +145,11 @@ func (g *DAG) ToJSON() string {
 		}
 		b.WriteString("\n  ],\n")
 	}
-	
+
 	// Export workflow nodes
 	b.WriteString("  \"workflow\": [\n")
 	first := true
-	
+
 	// Sort nodes by layer then position for consistent output
 	var sortedNodes []*Node
 	for _, n := range g.Nodes {
@@ -157,35 +157,35 @@ func (g *DAG) ToJSON() string {
 			sortedNodes = append(sortedNodes, n)
 		}
 	}
-	
+
 	sort.Slice(sortedNodes, func(i, j int) bool {
 		if sortedNodes[i].Layer != sortedNodes[j].Layer {
 			return sortedNodes[i].Layer < sortedNodes[j].Layer
 		}
 		return sortedNodes[i].Position < sortedNodes[j].Position
 	})
-	
+
 	for _, n := range sortedNodes {
 		if !first {
 			b.WriteString(",\n")
 		}
 		first = false
-		
+
 		subgraphStr := ""
 		if n.Subgraph != "" {
-			subgraphStr = fmt.Sprintf(",\"subgraph\":\"%s\",\"sub_x\":%d,\"sub_y\":%d", 
+			subgraphStr = fmt.Sprintf(",\"subgraph\":\"%s\",\"sub_x\":%d,\"sub_y\":%d",
 				n.Subgraph, n.SubX, n.SubY)
 		}
-		
+
 		fmt.Fprintf(&b,
 			"    {\"id\":\"%s\",\"tool\":\"%s\",\"args\":\"%s\",\"children\":%s,\"layer\":%d,\"position\":%d,\"parallel\":%t%s}",
-			n.ID, n.Tool, escapeJSON(n.Args), childrenJSON(n.Children), 
+			n.ID, n.Tool, escapeJSON(n.Args), childrenJSON(n.Children),
 			n.Layer, n.Position, n.Parallel, subgraphStr)
 	}
 	b.WriteString("\n  ]\n}")
 	return b.String()
 }
-func escapeJSON(s string) string { 
+func escapeJSON(s string) string {
 	s = strings.ReplaceAll(s, `"`, `\"`)
 	s = strings.ReplaceAll(s, "\n", "\\n")
 	s = strings.ReplaceAll(s, "\r", "\\r")
@@ -211,7 +211,7 @@ func stringArrayJSON(arr []string) string {
 func (g *DAG) ToCompactMermaid() string {
 	var b strings.Builder
 	b.WriteString("graph LR\n")
-	
+
 	// Simple node definitions
 	for _, node := range g.Nodes {
 		if node.ID == g.Root {
@@ -220,14 +220,14 @@ func (g *DAG) ToCompactMermaid() string {
 			fmt.Fprintf(&b, "  %s[%s]\n", node.ID, node.Tool)
 		}
 	}
-	
+
 	// Simple edges
 	for _, node := range g.Nodes {
 		for _, childID := range node.Children {
 			fmt.Fprintf(&b, "  %s --> %s\n", node.ID, childID)
 		}
 	}
-	
+
 	return b.String()
 }
 
@@ -236,12 +236,12 @@ func (g *DAG) ToExecutionPlan() string {
 	var b strings.Builder
 	b.WriteString("Execution Plan:\n")
 	b.WriteString("==============\n\n")
-	
+
 	executionOrder := g.GetExecutionOrder()
-	
+
 	for stepNum, group := range executionOrder {
 		fmt.Fprintf(&b, "Step %d:\n", stepNum+1)
-		
+
 		if len(group) == 1 {
 			if node, exists := g.Nodes[group[0]]; exists {
 				fmt.Fprintf(&b, "  → %s (%s)\n", node.Tool, node.ID)
@@ -262,6 +262,6 @@ func (g *DAG) ToExecutionPlan() string {
 		}
 		b.WriteString("\n")
 	}
-	
+
 	return b.String()
 }

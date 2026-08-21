@@ -3,19 +3,25 @@ package tui
 import (
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
+	"regexp"
 	"strings"
-	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/MKlolbullen/termaid/internal/graph"
 )
+
+// sepItem is a non-selectable category header rendered inside the tool list.
+type sepItem string
+
+func (s sepItem) Title() string       { return string(s) }
+func (s sepItem) Description() string { return "" }
+func (s sepItem) FilterValue() string { return "" }
+func (s sepItem) String() string      { return string(s) }
 
 /*─────────────────────── visual styles ─────────────────────────*/
 
@@ -84,11 +90,12 @@ type BuilderModel struct {
 	g   *graph.DAG
 	occ map[string]int
 
-	// cursor / focus
-	focus focusArea
-	curY  int
-	curX  int
-	msg   string
+	// selection / cursor / focus
+	selNode string // currently selected node ID (defaults to root "input")
+	focus   focusArea
+	curY    int
+	curX    int
+	msg     string
 }
 
 /*─────────────────────── constructor ─────────────────────────*/
@@ -126,15 +133,16 @@ func NewBuilder(tools []string) BuilderModel {
 	cv.YPosition = 1
 
 	return BuilderModel{
-		btns:       btns,
-		domainInp:  dom,
-		toolSel:    lst,
-		filterBox:  filt,
-		argsInp:    arg,
-		canvas:     cv,
-		g:          graph.NewDAG(),
-		occ:        make(map[string]int),
-		focus:      fHeader,
+		btns:      btns,
+		domainInp: dom,
+		toolSel:   lst,
+		filterBox: filt,
+		argsInp:   arg,
+		canvas:    cv,
+		g:         graph.NewDAG(),
+		occ:       make(map[string]int),
+		selNode:   "input",
+		focus:     fHeader,
 	}
 }
 
@@ -148,7 +156,7 @@ func (m BuilderModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	/*──────── mouse handling ───────*/
 	case tea.MouseMsg:
-		if v.Button == tea.MouseButtonLeft && v.Type == tea.MouseButtonPress {
+		if v.Button == tea.MouseButtonLeft && v.Action == tea.MouseActionPress {
 			switch {
 			case hitHeader(v):
 				m.focus = fHeader
@@ -167,10 +175,10 @@ func (m BuilderModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if m.focus == fCanvas {
-			if v.Type == tea.MouseWheelUp {
+			if v.Button == tea.MouseButtonWheelUp {
 				m.canvas.LineUp(3)
 			}
-			if v.Type == tea.MouseWheelDown {
+			if v.Button == tea.MouseButtonWheelDown {
 				m.canvas.LineDown(3)
 			}
 		}
@@ -279,7 +287,7 @@ func (m *BuilderModel) handleKeys(k tea.KeyMsg) {
 			m.focus = fArgs
 		case "shift+tab":
 			m.focus = fList
-		case "pgup", "pgdn", "ctrl+left", "ctrl+right", "ctrl+up", "ctrl+down":
+		case "pgup", "pgdn", "ctrl+up", "ctrl+down":
 			m.zoomPan(ks)
 		case "n", "r", "c":
 			m.nodeOps(ks)
@@ -305,8 +313,13 @@ func (m *BuilderModel) nodeOps(k string) {
 	switch k {
 
 	case "n": // add child
-		tool := m.toolSel.SelectedItem().(entryItem).name
-		if !canPipe(m.selNode, tool) {
+		sel, ok := m.toolSel.SelectedItem().(entryItem)
+		if !ok {
+			m.msg = "Select a tool first"
+			return
+		}
+		tool := sel.name
+		if !m.canPipe(m.selNode, tool) {
 			m.msg = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render("Type mismatch!")
 			return
 		}
@@ -353,10 +366,6 @@ func (m *BuilderModel) zoomPan(key string) {
 	case "pgdn": // zoom out
 		m.canvas.Width = clamp(m.canvas.Width+10, 30, 120)
 		m.canvas.Height = clamp(m.canvas.Height-3, 10, 50)
-	case "ctrl+left":
-		m.canvas.SetXOffset(m.canvas.XOffset - 6)
-	case "ctrl+right":
-		m.canvas.SetXOffset(m.canvas.XOffset + 6)
 	case "ctrl+up":
 		m.canvas.LineUp(2)
 	case "ctrl+down":
@@ -478,7 +487,7 @@ func (m BuilderModel) View() string {
 	)
 
 	help := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(
-		"↑↓←→ move  n new  r rm  m pick/drop  c args  PgUp/Down zoom  Ctrl+Arrows pan  / filter  ? legend  q quit",
+		"↑↓←→ move  n new  r rm  m pick/drop  c args  PgUp/Down zoom  Ctrl+↑↓ scroll  / filter  q quit",
 	)
 
 	return hdr + "\n" +
@@ -494,7 +503,7 @@ func buildToolItems(names []string) []list.Item {
 	for _, c := range catalog {
 		if c.Cat != curCat {
 			curCat = c.Cat
-			items = append(items, list.Separator("── "+curCat+" ──"))
+			items = append(items, sepItem("── "+curCat+" ──"))
 		}
 		items = append(items, entryItem{c.Name, c.Desc})
 	}
@@ -503,15 +512,18 @@ func buildToolItems(names []string) []list.Item {
 
 type toolDelegate struct{}
 
-func (toolDelegate) Height() int  { return 1 }
-func (toolDelegate) Spacing() int { return 0 }
+func (toolDelegate) Height() int                         { return 1 }
+func (toolDelegate) Spacing() int                        { return 0 }
 func (toolDelegate) Update(tea.Msg, *list.Model) tea.Cmd { return nil }
 func (toolDelegate) Render(w io.Writer, m list.Model, idx int, itm list.Item) {
-	if sep, ok := itm.(list.Separator); ok {
+	if sep, ok := itm.(sepItem); ok {
 		fmt.Fprintln(w, lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(sep.String()))
 		return
 	}
-	e := itm.(entryItem)
+	e, ok := itm.(entryItem)
+	if !ok {
+		return
+	}
 	title := lipgloss.NewStyle().Width(14).Render(e.name)
 	desc := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(e.desc)
 	if idx == m.Index() {
@@ -531,7 +543,7 @@ func (m *BuilderModel) applyFilter(cat string) {
 	var items []list.Item
 	for _, it := range buildToolItems(catalogueNames()) {
 		switch v := it.(type) {
-		case list.Separator:
+		case sepItem:
 			if strings.Contains(strings.ToLower(v.String()), cat) {
 				items = append(items, v)
 			}
@@ -546,26 +558,33 @@ func (m *BuilderModel) applyFilter(cat string) {
 
 /*──────── type check ─────────────────────*/
 
-func canPipe(parentID, childTool string) bool {
-	parentKey := parentIDTool(parentID)
-	parentEntry, ok1 := catalogMap[parentKey]
-	childEntry, ok2 := catalogMap[childTool]
-	if !ok1 || !ok2 {
+// canPipe reports whether childTool can consume the output of the node
+// identified by parentID. The parent's output type is resolved through the
+// DAG (node ID -> tool -> catalog entry); the implicit root emits the seed
+// domain. Unknown or wildcard ("any"/"raw") types never block the user.
+func (m *BuilderModel) canPipe(parentID, childTool string) bool {
+	childEntry, ok := catalogMap[childTool]
+	if !ok {
 		return false
 	}
-	pOut := parentEntry.Out
 	cIn := childEntry.In
-	if pOut == "raw" || cIn == "raw" {
+
+	var pOut string
+	if parentID == m.g.Root {
+		pOut = "domain" // seed file contains the target domain
+	} else if pn, ok := m.g.Nodes[parentID]; ok {
+		if pe, ok := catalogMap[pn.Tool]; ok {
+			pOut = pe.Out
+		}
+	}
+
+	if pOut == "" || cIn == "" {
+		return true
+	}
+	if pOut == "any" || cIn == "any" || pOut == "raw" || cIn == "raw" {
 		return true
 	}
 	return pOut == cIn
-}
-
-func parentIDTool(id string) string {
-	if entry, ok := catalogMap[id]; ok {
-		return entry.Name
-	}
-	return ""
 }
 
 /*──────── hit-test helpers ───────────────*/
@@ -579,8 +598,14 @@ func headerIndex(v tea.MouseMsg) int { return v.X / 10 }
 func listRow(v tea.MouseMsg) int     { return v.Y - 3 }
 
 func canvasCoord(v tea.MouseMsg, vp viewport.Model) (int, int) {
-	x := (v.X - 46 + vp.XOffset) / 8 // 8 chars per cell
-	y := (v.Y - 3 + vp.YOffset)
+	x := (v.X - 46) / 8 // 8 chars per cell
+	y := v.Y - 3 + vp.YOffset
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
 	return x, y
 }
 
@@ -611,7 +636,8 @@ func idAtCursor(m BuilderModel) string {
 	return ""
 }
 
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
 func stripAnsi(s string) string {
-	return lipgloss.NewStyle().Unset().
-		UnsetBorder().UnsetMargin().UnsetPadding().Render(s)
+	return strings.TrimSpace(ansiRe.ReplaceAllString(s, ""))
 }

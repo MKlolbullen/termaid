@@ -1,0 +1,12 @@
+# Compiled binaries
+/termaid
+termaid
+/cmd/**/termaid
+
+# Runtime output
+/workdir/
+run-*.log
+
+# Editor / OS cruft
+*.swp
+.DS_Store

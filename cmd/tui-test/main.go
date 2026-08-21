@@ -81,7 +81,7 @@ func (m *model) addTool() {
 	tool := m.tools[m.toolIdx]
 	id := fmt.Sprintf("%s-1", tool)
 	args := fmt.Sprintf("-d {{domain}} -o {{output}}")
-	
+
 	m.dag.AddNodeAtPosition(m.selNode, id, tool, args, m.layer+1, 0, "", false)
 	m.selNode = id
 	m.layer++
@@ -100,10 +100,10 @@ func (m model) View() string {
 	}
 
 	// Calculate 2x2 layout dimensions
-	toolsW := m.width / 5           // 20%
-	inputW := (m.width * 4) / 5     // 80%
-	helpH := m.height / 5           // 20%
-	visualH := (m.height * 4) / 5   // 80%
+	toolsW := m.width / 5         // 20%
+	inputW := (m.width * 4) / 5   // 80%
+	helpH := m.height / 5         // 20%
+	visualH := (m.height * 4) / 5 // 80%
 
 	// Render panels
 	toolsPanel := m.renderTools(toolsW, m.height-helpH)
@@ -114,17 +114,17 @@ func (m model) View() string {
 	// Combine layout
 	leftCol := lipgloss.JoinVertical(lipgloss.Top, toolsPanel, helpPanel)
 	rightCol := lipgloss.JoinVertical(lipgloss.Top, inputPanel, visualPanel)
-	
+
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftCol, rightCol)
 }
 
 func (m model) renderTools(w, h int) string {
 	var content strings.Builder
 	content.WriteString("Tools:\n")
-	
+
 	start := max(0, m.toolIdx-h+3)
 	end := min(len(m.tools), start+h-2)
-	
+
 	for i := start; i < end; i++ {
 		prefix := "  "
 		if i == m.toolIdx {
@@ -132,56 +132,56 @@ func (m model) renderTools(w, h int) string {
 		}
 		content.WriteString(fmt.Sprintf("%s%s\n", prefix, m.tools[i]))
 	}
-	
+
 	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Width(w).Height(h)
 	if m.focus == 0 {
 		style = style.BorderForeground(lipgloss.Color("10"))
 	} else {
 		style = style.BorderForeground(lipgloss.Color("8"))
 	}
-	
+
 	return style.Render(content.String())
 }
 
 func (m model) renderHelp(w, h int) string {
 	content := "Matrix Controls:\ntab - focus\n↑/↓ - navigate\nn - add tool\nr - remove\nq - quit"
-	
+
 	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Width(w).Height(h)
 	if m.focus == 1 {
 		style = style.BorderForeground(lipgloss.Color("10"))
 	} else {
 		style = style.BorderForeground(lipgloss.Color("8"))
 	}
-	
+
 	return style.Render(content)
 }
 
 func (m model) renderInput(w, h int) string {
 	content := fmt.Sprintf("Target: example.com\nSelected: %s\nMatrix: [%d,%d]", m.selNode, m.layer, 0)
-	
+
 	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Width(w).Height(h)
 	if m.focus == 2 {
 		style = style.BorderForeground(lipgloss.Color("10"))
 	} else {
 		style = style.BorderForeground(lipgloss.Color("8"))
 	}
-	
+
 	return style.Render(content)
 }
 
 func (m model) renderVisual(w, h int) string {
 	var content strings.Builder
 	content.WriteString("Matrix Workflow:\n\n")
-	
+
 	for layer := 0; layer <= m.dag.MaxX; layer++ {
 		layerMatrix := m.dag.GetLayerMatrix(layer)
 		prefix := "  "
 		if layer == m.layer && m.focus == 3 {
 			prefix = "▶ "
 		}
-		
+
 		content.WriteString(fmt.Sprintf("%sL%d: ", prefix, layer))
-		
+
 		hasNodes := false
 		for pos := 0; pos <= m.dag.MaxY; pos++ {
 			if nodes, exists := layerMatrix[pos]; exists {
@@ -214,7 +214,7 @@ func (m model) renderVisual(w, h int) string {
 		}
 		content.WriteString("\n")
 	}
-	
+
 	content.WriteString("\nMermaid (LR):\n")
 	mermaidLines := strings.Split(m.dag.ToCompactMermaid(), "\n")
 	maxLines := min(h-8, len(mermaidLines))
@@ -224,14 +224,14 @@ func (m model) renderVisual(w, h int) string {
 			content.WriteString("\n")
 		}
 	}
-	
+
 	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Width(w).Height(h)
 	if m.focus == 3 {
 		style = style.BorderForeground(lipgloss.Color("10"))
 	} else {
 		style = style.BorderForeground(lipgloss.Color("8"))
 	}
-	
+
 	return style.Render(content.String())
 }
 

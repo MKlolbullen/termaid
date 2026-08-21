@@ -9,11 +9,11 @@ import (
 type ScreenSize int
 
 const (
-	ScreenTiny ScreenSize = iota // < 80x24 (minimum)
-	ScreenSmall                  // 80x24 to 120x30
-	ScreenMedium                 // 120x30 to 160x40
-	ScreenLarge                  // 160x40 to 200x50
-	ScreenXLarge                 // > 200x50
+	ScreenTiny   ScreenSize = iota // < 80x24 (minimum)
+	ScreenSmall                    // 80x24 to 120x30
+	ScreenMedium                   // 120x30 to 160x40
+	ScreenLarge                    // 160x40 to 200x50
+	ScreenXLarge                   // > 200x50
 )
 
 // Breakpoints define responsive design thresholds
@@ -46,23 +46,23 @@ var DefaultBreakpoints = Breakpoints{
 
 // LayoutConfig defines responsive layout parameters
 type LayoutConfig struct {
-	ToolsPanelWidth      float64 // Percentage of screen width
-	ToolsPanelHeight     float64 // Percentage of screen height
-	HelpPanelHeight      float64 // Percentage of screen height
-	InputPanelHeight     float64 // Percentage of screen height
-	VisualPanelHeight    float64 // Percentage of screen height
-	MinToolsWidth        int     // Minimum absolute width
-	MinHelpHeight        int     // Minimum absolute height
-	MinInputHeight       int     // Minimum absolute height
-	MinVisualHeight      int     // Minimum absolute height
-	MaxToolsEntries      int     // Maximum visible tool entries
-	MaxMermaidLines      int     // Maximum Mermaid preview lines
-	UseVerticalScroll    bool    // Enable vertical scrolling
-	UseHorizontalScroll  bool    // Enable horizontal scrolling
-	CompactMode          bool    // Use compact rendering
-	ShowDetailedHelp     bool    // Show detailed help text
-	ShowMatrixGrid       bool    // Show full matrix grid
-	ShowSubgraphDetails  bool    // Show subgraph information
+	ToolsPanelWidth     float64 // Percentage of screen width
+	ToolsPanelHeight    float64 // Percentage of screen height
+	HelpPanelHeight     float64 // Percentage of screen height
+	InputPanelHeight    float64 // Percentage of screen height
+	VisualPanelHeight   float64 // Percentage of screen height
+	MinToolsWidth       int     // Minimum absolute width
+	MinHelpHeight       int     // Minimum absolute height
+	MinInputHeight      int     // Minimum absolute height
+	MinVisualHeight     int     // Minimum absolute height
+	MaxToolsEntries     int     // Maximum visible tool entries
+	MaxMermaidLines     int     // Maximum Mermaid preview lines
+	UseVerticalScroll   bool    // Enable vertical scrolling
+	UseHorizontalScroll bool    // Enable horizontal scrolling
+	CompactMode         bool    // Use compact rendering
+	ShowDetailedHelp    bool    // Show detailed help text
+	ShowMatrixGrid      bool    // Show full matrix grid
+	ShowSubgraphDetails bool    // Show subgraph information
 }
 
 // ResponsiveManager handles adaptive layout calculations
@@ -215,27 +215,27 @@ func (rm *ResponsiveManager) GetLayoutConfig(width, height int) LayoutConfig {
 // CalculateLayout computes actual pixel dimensions for layout
 func (rm *ResponsiveManager) CalculateLayout(width, height int) LayoutDimensions {
 	config := rm.GetLayoutConfig(width, height)
-	
+
 	// Calculate panel dimensions
 	toolsWidth := max(int(float64(width)*config.ToolsPanelWidth), config.MinToolsWidth)
 	inputWidth := width - toolsWidth
-	
+
 	helpHeight := max(int(float64(height)*config.HelpPanelHeight), config.MinHelpHeight)
 	inputHeight := max(int(float64(height)*config.InputPanelHeight), config.MinInputHeight)
 	visualHeight := height - inputHeight
 	toolsHeight := height - helpHeight
-	
+
 	return LayoutDimensions{
-		ToolsWidth:    toolsWidth,
-		ToolsHeight:   toolsHeight,
-		HelpWidth:     toolsWidth,
-		HelpHeight:    helpHeight,
-		InputWidth:    inputWidth,
-		InputHeight:   inputHeight,
-		VisualWidth:   inputWidth,
-		VisualHeight:  visualHeight,
-		Config:        config,
-		ScreenSize:    rm.DetectScreenSize(width, height),
+		ToolsWidth:   toolsWidth,
+		ToolsHeight:  toolsHeight,
+		HelpWidth:    toolsWidth,
+		HelpHeight:   helpHeight,
+		InputWidth:   inputWidth,
+		InputHeight:  inputHeight,
+		VisualWidth:  inputWidth,
+		VisualHeight: visualHeight,
+		Config:       config,
+		ScreenSize:   rm.DetectScreenSize(width, height),
 	}
 }
 
@@ -281,7 +281,7 @@ func NewScrollManager() *ScrollManager {
 // UpdateBounds updates scrolling boundaries based on content size
 func (sm *ScrollManager) UpdateBounds(toolsCount, matrixWidth, matrixHeight, mermaidLines int, layout LayoutDimensions) {
 	sm.state.MaxToolsOffset = max(0, toolsCount-layout.Config.MaxToolsEntries)
-	sm.state.MaxVisualOffsetX = max(0, matrixWidth-layout.VisualWidth/8) // Rough character width
+	sm.state.MaxVisualOffsetX = max(0, matrixWidth-layout.VisualWidth/8)   // Rough character width
 	sm.state.MaxVisualOffsetY = max(0, matrixHeight-layout.VisualHeight/2) // Rough line height
 }
 
@@ -337,40 +337,40 @@ func (sm *ScrollManager) GetState() ScrollState {
 // StyleAdaptive creates adaptive styles based on screen size
 func StyleAdaptive(screenSize ScreenSize) AdaptiveStyles {
 	base := lipgloss.NewStyle()
-	
+
 	switch screenSize {
 	case ScreenTiny:
 		return AdaptiveStyles{
-			Border:     base.Border(lipgloss.NormalBorder()),
-			Title:      base.Bold(false),
-			Highlight:  base.Foreground(lipgloss.Color("12")),
-			Muted:      base.Foreground(lipgloss.Color("8")),
-			Error:      base.Foreground(lipgloss.Color("9")),
-			Success:    base.Foreground(lipgloss.Color("10")),
-			Padding:    0,
-			Margin:     0,
+			Border:    base.Border(lipgloss.NormalBorder()),
+			Title:     base.Bold(false),
+			Highlight: base.Foreground(lipgloss.Color("12")),
+			Muted:     base.Foreground(lipgloss.Color("8")),
+			Error:     base.Foreground(lipgloss.Color("9")),
+			Success:   base.Foreground(lipgloss.Color("10")),
+			Padding:   0,
+			Margin:    0,
 		}
 	case ScreenSmall:
 		return AdaptiveStyles{
-			Border:     base.Border(lipgloss.RoundedBorder()),
-			Title:      base.Bold(true),
-			Highlight:  base.Foreground(lipgloss.Color("14")),
-			Muted:      base.Foreground(lipgloss.Color("8")),
-			Error:      base.Foreground(lipgloss.Color("9")),
-			Success:    base.Foreground(lipgloss.Color("10")),
-			Padding:    1,
-			Margin:     0,
+			Border:    base.Border(lipgloss.RoundedBorder()),
+			Title:     base.Bold(true),
+			Highlight: base.Foreground(lipgloss.Color("14")),
+			Muted:     base.Foreground(lipgloss.Color("8")),
+			Error:     base.Foreground(lipgloss.Color("9")),
+			Success:   base.Foreground(lipgloss.Color("10")),
+			Padding:   1,
+			Margin:    0,
 		}
 	default:
 		return AdaptiveStyles{
-			Border:     base.Border(lipgloss.RoundedBorder()),
-			Title:      base.Bold(true).Underline(true),
-			Highlight:  base.Foreground(lipgloss.Color("14")).Bold(true),
-			Muted:      base.Foreground(lipgloss.Color("8")),
-			Error:      base.Foreground(lipgloss.Color("9")).Bold(true),
-			Success:    base.Foreground(lipgloss.Color("10")).Bold(true),
-			Padding:    1,
-			Margin:     1,
+			Border:    base.Border(lipgloss.RoundedBorder()),
+			Title:     base.Bold(true).Underline(true),
+			Highlight: base.Foreground(lipgloss.Color("14")).Bold(true),
+			Muted:     base.Foreground(lipgloss.Color("8")),
+			Error:     base.Foreground(lipgloss.Color("9")).Bold(true),
+			Success:   base.Foreground(lipgloss.Color("10")).Bold(true),
+			Padding:   1,
+			Margin:    1,
 		}
 	}
 }
