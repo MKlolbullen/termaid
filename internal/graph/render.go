@@ -1,267 +1,323 @@
 package graph
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 )
 
-// ToMermaid converts the DAG to Mermaid graph LR format with matrix positioning.
+// ToMermaid converts the DAG to a semantic Mermaid flowchart. Matrix/subgraph
+// placement remains a presentation concern; execution is represented by the
+// actual dependency edges and their optional conditions.
 func (g *DAG) ToMermaid() string {
+	g.EnsureEdges()
 	var b strings.Builder
-	b.WriteString("graph LR\n")
+	b.WriteString("flowchart LR\n")
+	b.WriteString("  classDef worker fill:#16202a,stroke:#8aa4b8,color:#e6edf3\n")
+	b.WriteString("  classDef merge fill:#14251f,stroke:#3fb950,color:#e6edf3\n")
+	b.WriteString("  classDef gate fill:#2b2414,stroke:#d29922,color:#e6edf3\n")
+	b.WriteString("  classDef transform fill:#17243a,stroke:#58a6ff,color:#e6edf3\n")
+	b.WriteString("  classDef checkpoint fill:#241b31,stroke:#a371f7,color:#e6edf3\n")
+	b.WriteString("  classDef sink fill:#2b1d22,stroke:#f778ba,color:#e6edf3\n")
+	b.WriteString("  classDef manual fill:#312219,stroke:#ffa657,color:#e6edf3\n")
+	b.WriteString("  classDef source fill:#19232d,stroke:#79c0ff,color:#e6edf3\n")
 
-	// Generate subgraphs first
 	g.generateSubgraphs(&b)
-
-	// Generate main layer structure
 	g.generateLayers(&b)
-
-	// Generate edges
 	g.generateEdges(&b)
-
+	g.generateClasses(&b)
 	return b.String()
 }
 
-// generateSubgraphs creates subgraph definitions for parallel execution groups
 func (g *DAG) generateSubgraphs(b *strings.Builder) {
-	for sgID, sg := range g.Subgraphs {
-		if len(sg.Nodes) > 0 {
-			fmt.Fprintf(b, "  subgraph %s[\"%s\"]\n", sgID, sg.Name)
-
-			// Sort nodes by subgraph coordinates
-			nodes := g.GetSubgraphNodes(sgID)
-			for _, node := range nodes {
-				fmt.Fprintf(b, "    %s[\"%s\\n%s\"]\n", node.ID, node.Tool, truncateArgs(node.Args))
-			}
-
-			b.WriteString("  end\n")
-		}
+	ids := make([]string, 0, len(g.Subgraphs))
+	for id := range g.Subgraphs {
+		ids = append(ids, id)
 	}
-}
-
-// generateLayers creates layer-based node definitions with matrix positioning
-func (g *DAG) generateLayers(b *strings.Builder) {
-	for layer := 0; layer <= g.MaxX; layer++ {
-		layerMatrix := g.GetLayerMatrix(layer)
-
-		if len(layerMatrix) == 0 {
+	sort.Strings(ids)
+	for _, sgID := range ids {
+		sg := g.Subgraphs[sgID]
+		if len(sg.Nodes) == 0 {
 			continue
 		}
-
-		// Create layer subgraph
-		fmt.Fprintf(b, "  subgraph L%d[\"Layer %d\"]\n", layer, layer)
-
-		// Process positions in order
-		for pos := 0; pos <= g.MaxY; pos++ {
-			if nodes, exists := layerMatrix[pos]; exists {
-				if len(nodes) == 1 {
-					// Single node at position
-					node := nodes[0]
-					if node.Subgraph == "" { // Only render if not in a subgraph
-						fmt.Fprintf(b, "    %s[\"%s\\n%s\"]\n",
-							node.ID, node.Tool, truncateArgs(node.Args))
-					}
-				} else if len(nodes) > 1 {
-					// Multiple nodes at same position (parallel)
-					fmt.Fprintf(b, "    subgraph P%d_%d[\"Parallel Group\"]\n", layer, pos)
-					for _, node := range nodes {
-						if node.Subgraph == "" {
-							fmt.Fprintf(b, "      %s[\"%s\\n%s\"]\n",
-								node.ID, node.Tool, truncateArgs(node.Args))
-						}
-					}
-					b.WriteString("    end\n")
-				}
-			}
+		fmt.Fprintf(b, "  subgraph %s[\"%s\"]\n", safeMermaidID(sgID), escapeMermaid(sg.Name))
+		if sg.Parallel {
+			b.WriteString("    direction TB\n")
 		}
-
+		for _, node := range g.GetSubgraphNodes(sgID) {
+			writeNode(b, node, "    ")
+		}
 		b.WriteString("  end\n")
 	}
 }
 
-// generateEdges creates all the connections between nodes
-func (g *DAG) generateEdges(b *strings.Builder) {
-	// Sort nodes for consistent edge ordering
-	var sortedNodes []*Node
-	for _, node := range g.Nodes {
-		sortedNodes = append(sortedNodes, node)
-	}
-
-	// Sort by layer then position
-	sort.Slice(sortedNodes, func(i, j int) bool {
-		if sortedNodes[i].Layer != sortedNodes[j].Layer {
-			return sortedNodes[i].Layer < sortedNodes[j].Layer
+func (g *DAG) generateLayers(b *strings.Builder) {
+	for layer := 0; layer <= g.MaxX; layer++ {
+		layerMatrix := g.GetLayerMatrix(layer)
+		if len(layerMatrix) == 0 {
+			continue
 		}
-		return sortedNodes[i].Position < sortedNodes[j].Position
-	})
-
-	for _, node := range sortedNodes {
-		for _, childID := range node.Children {
-			if child, exists := g.Nodes[childID]; exists {
-				// Style edge based on relationship type
-				edgeStyle := "-->"
-				if child.Parallel && len(node.Children) > 1 {
-					edgeStyle = "-.->|parallel|"
-				} else if child.Layer == node.Layer+1 {
-					edgeStyle = "-->|sequential|"
+		var rendered []*Node
+		for _, nodes := range layerMatrix {
+			for _, n := range nodes {
+				if n.Subgraph == "" {
+					rendered = append(rendered, n)
 				}
-
-				fmt.Fprintf(b, "  %s %s %s\n", node.ID, edgeStyle, childID)
 			}
+		}
+		if len(rendered) == 0 {
+			continue
+		}
+		sort.Slice(rendered, func(i, j int) bool {
+			if rendered[i].Position != rendered[j].Position {
+				return rendered[i].Position < rendered[j].Position
+			}
+			return rendered[i].ID < rendered[j].ID
+		})
+		fmt.Fprintf(b, "  subgraph L%d[\"Layer %d\"]\n", layer, layer)
+		b.WriteString("    direction TB\n")
+		for _, n := range rendered {
+			writeNode(b, n, "    ")
+		}
+		b.WriteString("  end\n")
+	}
+}
+
+func writeNode(b *strings.Builder, node *Node, indent string) {
+	label := nodeLabel(node)
+	id := safeMermaidID(node.ID)
+	switch node.EffectiveKind() {
+	case NodeKindGate:
+		fmt.Fprintf(b, "%s%s{\"%s\"}\n", indent, id, label)
+	case NodeKindMerge:
+		fmt.Fprintf(b, "%s%s((\"%s\"))\n", indent, id, label)
+	case NodeKindCheckpoint:
+		fmt.Fprintf(b, "%s%s([\"%s\"])\n", indent, id, label)
+	case NodeKindSink:
+		fmt.Fprintf(b, "%s%s[[\"%s\"]]\n", indent, id, label)
+	default:
+		fmt.Fprintf(b, "%s%s[\"%s\"]\n", indent, id, label)
+	}
+}
+
+func nodeLabel(node *Node) string {
+	if node.ID == "input" || node.EffectiveKind() == NodeKindSource {
+		return "Target seed"
+	}
+	name := node.Tool
+	if strings.TrimSpace(name) == "" {
+		name = string(node.EffectiveKind())
+	}
+	parts := []string{escapeMermaid(name)}
+	if node.EffectiveKind() != NodeKindWorker {
+		parts = append(parts, "«"+string(node.EffectiveKind())+"»")
+	}
+	if len(node.Outputs) > 0 {
+		outs := make([]string, len(node.Outputs))
+		for i, t := range node.Outputs {
+			outs[i] = string(t)
+		}
+		parts = append(parts, "→ "+strings.Join(outs, ","))
+	} else if node.Args != "" {
+		parts = append(parts, truncateArgs(node.Args))
+	}
+	return strings.Join(parts, "\\n")
+}
+
+func (g *DAG) generateEdges(b *strings.Builder) {
+	edges := append([]Edge(nil), g.Edges...)
+	sort.Slice(edges, func(i, j int) bool {
+		if edges[i].From != edges[j].From {
+			return edges[i].From < edges[j].From
+		}
+		return edges[i].To < edges[j].To
+	})
+	for _, e := range edges {
+		from, to := safeMermaidID(e.From), safeMermaidID(e.To)
+		label := strings.TrimSpace(e.Label)
+		if label == "" {
+			label = strings.TrimSpace(e.Condition)
+		}
+		if label == "" || label == "always" {
+			fmt.Fprintf(b, "  %s --> %s\n", from, to)
+		} else {
+			fmt.Fprintf(b, "  %s -. \"%s\" .-> %s\n", from, escapeMermaid(label), to)
 		}
 	}
 }
 
-// truncateArgs shortens long argument strings for display
+func (g *DAG) generateClasses(b *strings.Builder) {
+	ids := make([]string, 0, len(g.Nodes))
+	for id := range g.Nodes {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		n := g.Nodes[id]
+		kind := n.EffectiveKind()
+		if id == g.Root {
+			kind = NodeKindSource
+		}
+		fmt.Fprintf(b, "  class %s %s\n", safeMermaidID(id), kind)
+	}
+}
+
 func truncateArgs(args string) string {
-	if len(args) > 30 {
-		return args[:27] + "..."
+	args = strings.ReplaceAll(args, "\"", "'")
+	if len(args) > 42 {
+		return args[:39] + "..."
 	}
 	return args
 }
 
-// ToJSON emits enhanced JSON structure with matrix positioning and subgraphs.
+// ToJSON emits the v3 workflow format. Using encoding/json instead of manual
+// string construction ensures new semantic fields cannot silently disappear.
 func (g *DAG) ToJSON() string {
-	var b strings.Builder
-	b.WriteString("{\n")
-	b.WriteString("  \"version\": \"2.0\",\n")
-	b.WriteString("  \"matrix\": {\n")
-	b.WriteString(fmt.Sprintf("    \"max_x\": %d,\n", g.MaxX))
-	b.WriteString(fmt.Sprintf("    \"max_y\": %d\n", g.MaxY))
-	b.WriteString("  },\n")
-
-	// Export subgraphs
-	if len(g.Subgraphs) > 0 {
-		b.WriteString("  \"subgraphs\": [\n")
-		first := true
-		for _, sg := range g.Subgraphs {
-			if !first {
-				b.WriteString(",\n")
-			}
-			first = false
-			fmt.Fprintf(&b, "    {\"id\":\"%s\",\"name\":\"%s\",\"parallel\":%t,\"nodes\":%s}",
-				sg.ID, escapeJSON(sg.Name), sg.Parallel, stringArrayJSON(sg.Nodes))
-		}
-		b.WriteString("\n  ],\n")
+	g.EnsureEdges()
+	type matrixExport struct {
+		MaxX int `json:"max_x"`
+		MaxY int `json:"max_y"`
+	}
+	type subgraphExport struct {
+		ID          string   `json:"id"`
+		Name        string   `json:"name"`
+		Description string   `json:"description,omitempty"`
+		Parallel    bool     `json:"parallel"`
+		Nodes       []string `json:"nodes"`
+	}
+	type workflowExport struct {
+		Version   string             `json:"version"`
+		Matrix    matrixExport       `json:"matrix"`
+		Policy    WorkflowPolicy     `json:"policy,omitempty"`
+		Subgraphs []subgraphExport   `json:"subgraphs,omitempty"`
+		Edges     []Edge             `json:"edges,omitempty"`
+		Workflow  []*Node            `json:"workflow"`
 	}
 
-	// Export workflow nodes
-	b.WriteString("  \"workflow\": [\n")
-	first := true
+	var subgraphs []subgraphExport
+	sgIDs := make([]string, 0, len(g.Subgraphs))
+	for id := range g.Subgraphs {
+		sgIDs = append(sgIDs, id)
+	}
+	sort.Strings(sgIDs)
+	for _, id := range sgIDs {
+		sg := g.Subgraphs[id]
+		nodes := append([]string(nil), sg.Nodes...)
+		sort.Strings(nodes)
+		subgraphs = append(subgraphs, subgraphExport{ID: sg.ID, Name: sg.Name, Description: sg.Description, Parallel: sg.Parallel, Nodes: nodes})
+	}
 
-	// Sort nodes by layer then position for consistent output
-	var sortedNodes []*Node
+	var nodes []*Node
 	for _, n := range g.Nodes {
 		if n.ID != g.Root {
-			sortedNodes = append(sortedNodes, n)
+			nodes = append(nodes, n)
 		}
 	}
-
-	sort.Slice(sortedNodes, func(i, j int) bool {
-		if sortedNodes[i].Layer != sortedNodes[j].Layer {
-			return sortedNodes[i].Layer < sortedNodes[j].Layer
+	sort.Slice(nodes, func(i, j int) bool {
+		if nodes[i].Layer != nodes[j].Layer {
+			return nodes[i].Layer < nodes[j].Layer
 		}
-		return sortedNodes[i].Position < sortedNodes[j].Position
+		if nodes[i].Position != nodes[j].Position {
+			return nodes[i].Position < nodes[j].Position
+		}
+		return nodes[i].ID < nodes[j].ID
 	})
 
-	for _, n := range sortedNodes {
-		if !first {
-			b.WriteString(",\n")
+	edges := append([]Edge(nil), g.Edges...)
+	sort.Slice(edges, func(i, j int) bool {
+		if edges[i].From != edges[j].From {
+			return edges[i].From < edges[j].From
 		}
-		first = false
+		return edges[i].To < edges[j].To
+	})
 
-		subgraphStr := ""
-		if n.Subgraph != "" {
-			subgraphStr = fmt.Sprintf(",\"subgraph\":\"%s\",\"sub_x\":%d,\"sub_y\":%d",
-				n.Subgraph, n.SubX, n.SubY)
-		}
-
-		fmt.Fprintf(&b,
-			"    {\"id\":\"%s\",\"tool\":\"%s\",\"args\":\"%s\",\"children\":%s,\"layer\":%d,\"position\":%d,\"parallel\":%t%s}",
-			n.ID, n.Tool, escapeJSON(n.Args), childrenJSON(n.Children),
-			n.Layer, n.Position, n.Parallel, subgraphStr)
+	payload := workflowExport{
+		Version:   "3.0",
+		Matrix:    matrixExport{MaxX: g.MaxX, MaxY: g.MaxY},
+		Policy:    g.Policy,
+		Subgraphs: subgraphs,
+		Edges:     edges,
+		Workflow:  nodes,
 	}
-	b.WriteString("\n  ]\n}")
-	return b.String()
-}
-func escapeJSON(s string) string {
-	s = strings.ReplaceAll(s, `"`, `\"`)
-	s = strings.ReplaceAll(s, "\n", "\\n")
-	s = strings.ReplaceAll(s, "\r", "\\r")
-	s = strings.ReplaceAll(s, "\t", "\\t")
-	return s
-}
-
-func childrenJSON(c []string) string {
-	if len(c) == 0 {
-		return "[]"
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return fmt.Sprintf(`{"version":"3.0","error":%q}`, err.Error())
 	}
-	return `["` + strings.Join(c, `","`) + `"]`
+	return string(data)
 }
 
-func stringArrayJSON(arr []string) string {
-	if len(arr) == 0 {
-		return "[]"
-	}
-	return `["` + strings.Join(arr, `","`) + `"]`
-}
-
-// ToCompactMermaid generates a simplified left-to-right Mermaid diagram
+// ToCompactMermaid generates a minimal dependency-only diagram.
 func (g *DAG) ToCompactMermaid() string {
+	g.EnsureEdges()
 	var b strings.Builder
-	b.WriteString("graph LR\n")
-
-	// Simple node definitions
-	for _, node := range g.Nodes {
-		if node.ID == g.Root {
-			fmt.Fprintf(&b, "  %s([Start])\n", node.ID)
+	b.WriteString("flowchart LR\n")
+	ids := make([]string, 0, len(g.Nodes))
+	for id := range g.Nodes {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		n := g.Nodes[id]
+		if id == g.Root {
+			fmt.Fprintf(&b, "  %s([Target])\n", safeMermaidID(id))
 		} else {
-			fmt.Fprintf(&b, "  %s[%s]\n", node.ID, node.Tool)
+			fmt.Fprintf(&b, "  %s[%s]\n", safeMermaidID(id), escapeMermaid(n.Tool))
 		}
 	}
-
-	// Simple edges
-	for _, node := range g.Nodes {
-		for _, childID := range node.Children {
-			fmt.Fprintf(&b, "  %s --> %s\n", node.ID, childID)
-		}
+	for _, e := range g.Edges {
+		fmt.Fprintf(&b, "  %s --> %s\n", safeMermaidID(e.From), safeMermaidID(e.To))
 	}
-
 	return b.String()
 }
 
-// ToExecutionPlan generates a human-readable execution plan
+// ToExecutionPlan reports the dependency-based order rather than implying
+// that visual layers are execution barriers.
 func (g *DAG) ToExecutionPlan() string {
+	order, err := g.TopologicalOrder()
+	if err != nil {
+		return "Execution Plan:\n==============\n\nERROR: " + err.Error() + "\n"
+	}
 	var b strings.Builder
-	b.WriteString("Execution Plan:\n")
-	b.WriteString("==============\n\n")
-
-	executionOrder := g.GetExecutionOrder()
-
-	for stepNum, group := range executionOrder {
-		fmt.Fprintf(&b, "Step %d:\n", stepNum+1)
-
-		if len(group) == 1 {
-			if node, exists := g.Nodes[group[0]]; exists {
-				fmt.Fprintf(&b, "  → %s (%s)\n", node.Tool, node.ID)
-				if node.Args != "" {
-					fmt.Fprintf(&b, "    Args: %s\n", node.Args)
-				}
-			}
-		} else {
-			b.WriteString("  Parallel execution:\n")
-			for _, nodeID := range group {
-				if node, exists := g.Nodes[nodeID]; exists {
-					fmt.Fprintf(&b, "  → %s (%s)\n", node.Tool, node.ID)
-					if node.Args != "" {
-						fmt.Fprintf(&b, "    Args: %s\n", node.Args)
-					}
-				}
-			}
+	b.WriteString("Execution Plan:\n==============\n\n")
+	step := 0
+	for _, id := range order {
+		if id == g.Root {
+			continue
+		}
+		step++
+		n := g.Nodes[id]
+		fmt.Fprintf(&b, "Step %d: %s (%s, %s)\n", step, n.Tool, id, n.EffectiveKind())
+		if parents := g.Parents(id); len(parents) > 0 {
+			fmt.Fprintf(&b, "  depends on: %s\n", strings.Join(parents, ", "))
+		}
+		if n.Condition != "" {
+			fmt.Fprintf(&b, "  condition: %s\n", n.Condition)
 		}
 		b.WriteString("\n")
 	}
-
 	return b.String()
+}
+
+func safeMermaidID(s string) string {
+	var b strings.Builder
+	for i, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_' || (i > 0 && r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune('_')
+		}
+	}
+	if b.Len() == 0 {
+		return "node"
+	}
+	return b.String()
+}
+
+func escapeMermaid(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	return s
 }
