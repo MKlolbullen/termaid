@@ -11,9 +11,7 @@ import (
 	"github.com/MKlolbullen/termaid/internal/pipeline"
 )
 
-// ToolSummary is a catalog entry exposed for non-interactive consumers (the
-// CLI, tests). It mirrors the internal catalogEntry without leaking the
-// unexported type.
+// ToolSummary is a catalog entry exposed for non-interactive consumers.
 type ToolSummary struct {
 	Name string
 	Cat  string
@@ -23,25 +21,23 @@ type ToolSummary struct {
 	Def  string
 }
 
-// CatalogInfo returns the active tool catalog as a slice of summaries, sorted
-// the same way the interactive picker groups them (category, then name).
+// HeadlessRunOptions exposes the v3 execution-controller features without
+// coupling the CLI directly to pipeline internals.
+type HeadlessRunOptions struct {
+	ResumeRunID    string
+	ApproveIntrusive bool
+	Approvals      map[string]bool
+}
+
 func CatalogInfo() []ToolSummary {
 	out := make([]ToolSummary, 0, len(catalog))
 	for _, e := range catalog {
-		out = append(out, ToolSummary{
-			Name: e.Name,
-			Cat:  e.Cat,
-			In:   e.In,
-			Out:  e.Out,
-			Desc: e.Desc,
-			Def:  e.Def,
-		})
+		out = append(out, ToolSummary{Name: e.Name, Cat: e.Cat, In: e.In, Out: e.Out, Desc: e.Desc, Def: e.Def})
 	}
 	return out
 }
 
-// MermaidForWorkflow returns the Mermaid representation of a workflow. A .mmd
-// file is returned verbatim; a workflow JSON file is loaded and rendered.
+// MermaidForWorkflow returns semantic Mermaid for JSON or raw .mmd content.
 func MermaidForWorkflow(path string) (string, error) {
 	if strings.HasSuffix(path, ".mmd") {
 		b, err := os.ReadFile(path)
@@ -50,68 +46,85 @@ func MermaidForWorkflow(path string) (string, error) {
 		}
 		return string(b), nil
 	}
-	dag, err := LoadWorkflow(path)
+	dag, err := LoadWorkflowV3(path)
 	if err != nil {
 		return "", err
 	}
 	return dag.ToMermaid(), nil
 }
 
-// ValidateWorkflow loads a workflow and checks its matrix for consistency.
-// The DAG is returned even when validation fails, so callers can still report
-// structural details.
+// ValidateWorkflow validates matrix layout, dependency acyclicity, node kinds,
+// and typed artifact contracts.
 func ValidateWorkflow(path string) (*graph.DAG, error) {
-	dag, err := LoadWorkflow(path)
+	dag, err := LoadWorkflowV3(path)
 	if err != nil {
 		return nil, err
 	}
-	return dag, dag.ValidateMatrix()
+	return dag, dag.Validate()
 }
 
-// RunHeadless executes a workflow without the TUI, streaming human-readable
-// status lines to w. It blocks until the run completes and returns the first
-// fatal error, if any.
+// RunHeadless preserves the original API with conservative v3 defaults.
 func RunHeadless(ctx context.Context, path, domain, workdir string, concurrency int, w io.Writer) error {
+	return RunHeadlessWithOptions(ctx, path, domain, workdir, concurrency, HeadlessRunOptions{}, w)
+}
+
+// RunHeadlessWithOptions executes the dependency DAG and streams status lines.
+func RunHeadlessWithOptions(ctx context.Context, path, domain, workdir string, concurrency int, opts HeadlessRunOptions, w io.Writer) error {
 	if strings.TrimSpace(domain) == "" {
 		return fmt.Errorf("domain must not be empty")
 	}
 	if concurrency < 1 {
 		concurrency = 1
 	}
-
-	dag, err := LoadWorkflow(path)
+	dag, err := LoadWorkflowV3(path)
 	if err != nil {
 		return fmt.Errorf("load workflow %q: %w", path, err)
 	}
-
-	cats := dagToCategories(dag)
-	if len(cats) == 0 {
-		return fmt.Errorf("workflow %q contains no runnable tools", path)
+	if err := dag.Validate(); err != nil {
+		return fmt.Errorf("validate workflow %q: %w", path, err)
 	}
 
-	fmt.Fprintf(w, "▶ running %q against %s (%d steps, concurrency %d)\n",
-		path, domain, len(cats), concurrency)
+	runnable := 0
+	for id := range dag.Nodes {
+		if id != dag.Root {
+			runnable++
+		}
+	}
+	if runnable == 0 {
+		return fmt.Errorf("workflow %q contains no runnable nodes", path)
+	}
+
+	fmt.Fprintf(w, "▶ running %q against %s (%d nodes, concurrency %d, DAG scheduler)\n", path, domain, runnable, concurrency)
+	if opts.ResumeRunID != "" {
+		fmt.Fprintf(w, "  resuming checkpoint %s\n", opts.ResumeRunID)
+	}
 
 	ch := make(chan pipeline.Status, 128)
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- pipeline.Run(ctx, domain, workdir, cats, concurrency, ch)
+		errCh <- pipeline.RunDAG(ctx, domain, workdir, dag, pipeline.RunConfig{
+			Concurrency:    concurrency,
+			ResumeRunID:    opts.ResumeRunID,
+			Approvals:      opts.Approvals,
+			AllowIntrusive: opts.ApproveIntrusive,
+		}, ch)
 		close(ch)
 	}()
 
-	var failures int
+	var failures, skipped int
 	for st := range ch {
 		if st.Type == pipeline.StatusError {
 			failures++
 		}
-		fmt.Fprintf(w, "  [%s] %-20s %s\n", st.Category, st.Tool, headlessStatus(st))
+		if st.Type == pipeline.StatusSkip {
+			skipped++
+		}
+		fmt.Fprintf(w, "  [%s] %-24s %s\n", st.Category, st.Tool, headlessStatus(st))
 	}
-
 	if err := <-errCh; err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "✔ finished: %d step(s), %d tool error(s). Results in %s/\n",
-		len(cats), failures, workdir)
+	fmt.Fprintf(w, "✔ finished: %d node(s), %d tool error(s), %d skipped. Results in %s/\n", runnable, failures, skipped, workdir)
 	return nil
 }
 
@@ -121,6 +134,11 @@ func headlessStatus(s pipeline.Status) string {
 		return "started"
 	case pipeline.StatusFinish:
 		return "done"
+	case pipeline.StatusSkip:
+		if s.Err != nil {
+			return "skipped: " + s.Err.Error()
+		}
+		return "skipped"
 	case pipeline.StatusError:
 		if s.Err != nil {
 			return "error: " + s.Err.Error()
