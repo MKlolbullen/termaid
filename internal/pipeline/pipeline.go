@@ -115,12 +115,16 @@ func Run(
 			}
 		}
 
-		// Get merged output for next layer
+		// Merge every tool's output in this layer into a single, deduplicated
+		// file that seeds the next layer. Using the whole category directory
+		// (rather than just the first tool) ensures parallel branches all feed
+		// forward.
 		if len(cat.Tools) > 0 {
-			prevPath, err = dataFlow.GetLatestOutput(cat.Tools[0].Name)
-			if err != nil {
-				return fmt.Errorf("failed to get latest output: %w", err)
+			merged, mErr := mergeOutputs(catDir)
+			if mErr != nil {
+				return fmt.Errorf("failed to merge layer outputs: %w", mErr)
 			}
+			prevPath = merged
 		}
 	}
 
@@ -151,22 +155,12 @@ func runTool(
 	outputFile := filepath.Join(catDir, fmt.Sprintf("%s-%d.txt", tool.Name, startTime.Unix()))
 	outputFiles = append(outputFiles, outputFile)
 
-	// prepare args with placeholder substitution
-	args := make([]string, len(tool.Args))
-	copy(args, tool.Args)
-
-	for i, a := range args {
-		if strings.Contains(a, "{{input}}") {
-			args[i] = strings.ReplaceAll(a, "{{input}}", inputPath)
-		}
-		if strings.Contains(a, "{{domain}}") {
-			domain := strings.TrimSpace(readFirstLine(inputPath))
-			args[i] = strings.ReplaceAll(a, "{{domain}}", domain)
-		}
-		if strings.Contains(a, "{{output}}") {
-			args[i] = strings.ReplaceAll(a, "{{output}}", outputFile)
-		}
-	}
+	// Prepare args with placeholder substitution. Both the
+	// {{input}}/{{domain}}/{{output}} and $(target_file)/$(target)/$(output)
+	// placeholder styles are supported so hand-written presets and
+	// catalog-generated workflows behave identically.
+	domain := strings.TrimSpace(readFirstLine(inputPath))
+	args := substituteArgs(tool.Args, domain, inputPath, outputFile)
 
 	// Validate tool before execution
 	if err := validateTool(tool); err != nil {
@@ -197,6 +191,21 @@ func runTool(
 		}
 		defer inputFile.Close()
 		cmd.Stdin = inputFile
+	}
+
+	// Capture stdout into the tool's output file unless the tool writes the
+	// file itself via an {{output}}/$(output) placeholder. Many recon tools
+	// stream results to stdout (e.g. "-o -"); without this their results
+	// would be discarded and never reach the next layer.
+	if !writesOwnFile(tool.Args) {
+		outF, err := os.Create(outputFile)
+		if err != nil {
+			out <- Status{Type: StatusError, Category: catName, Tool: tool.Name, Err: err}
+			dataFlow.RecordNodeOutput(tool.Name, tool.Command, startTime, time.Now(), 1, outputFiles, err.Error())
+			return err
+		}
+		defer outF.Close()
+		cmd.Stdout = outF
 	}
 
 	stderr, err := cmd.StderrPipe()
@@ -302,6 +311,40 @@ func seedInput(domain string) (string, error) {
 }
 
 func dirSafe(s string) string { return strings.ReplaceAll(strings.ToLower(s), " ", "_") }
+
+// substituteArgs resolves workflow placeholders in a tool's argument list.
+// It understands both placeholder dialects used across the project:
+//
+//	{{input}}  / $(target_file) -> path to the input file from the prior layer
+//	{{domain}} / $(target)      -> the target domain (first line of the input)
+//	{{output}} / $(output)      -> path to this tool's output file
+func substituteArgs(rawArgs []string, domain, inputPath, outputFile string) []string {
+	r := strings.NewReplacer(
+		"{{input}}", inputPath,
+		"$(target_file)", inputPath,
+		"{{domain}}", domain,
+		"$(target)", domain,
+		"{{output}}", outputFile,
+		"$(output)", outputFile,
+	)
+	out := make([]string, len(rawArgs))
+	for i, a := range rawArgs {
+		out[i] = r.Replace(a)
+	}
+	return out
+}
+
+// writesOwnFile reports whether a tool manages its own output file via an
+// output placeholder, in which case the engine must not also redirect stdout
+// to that file.
+func writesOwnFile(rawArgs []string) bool {
+	for _, a := range rawArgs {
+		if strings.Contains(a, "{{output}}") || strings.Contains(a, "$(output)") {
+			return true
+		}
+	}
+	return false
+}
 
 // validateTool checks if a tool exists and is executable
 func validateTool(tool *Tool) error {

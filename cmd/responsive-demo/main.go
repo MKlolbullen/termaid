@@ -31,12 +31,12 @@ func main() {
 	for _, size := range testSizes {
 		fmt.Printf("📏 %s Screen (%dx%d) - %s\n", size.name, size.width, size.height, size.desc)
 		fmt.Println(strings.Repeat("─", 60))
-		
+
 		layout := rm.CalculateLayout(size.width, size.height)
-		
+
 		// Show layout breakdown
 		fmt.Printf("Screen Size Category: %v\n", getScreenSizeName(layout.ScreenSize))
-		fmt.Printf("Tools Panel:   %dx%d (%.1f%% width, %.1f%% height)\n", 
+		fmt.Printf("Tools Panel:   %dx%d (%.1f%% width, %.1f%% height)\n",
 			layout.ToolsWidth, layout.ToolsHeight,
 			float64(layout.ToolsWidth)/float64(size.width)*100,
 			float64(layout.ToolsHeight)/float64(size.height)*100)
@@ -46,7 +46,7 @@ func main() {
 			layout.VisualWidth, layout.VisualHeight,
 			float64(layout.VisualWidth)/float64(size.width)*100,
 			float64(layout.VisualHeight)/float64(size.height)*100)
-		
+
 		// Show configuration details
 		config := layout.Config
 		fmt.Printf("\nConfiguration:\n")
@@ -58,11 +58,11 @@ func main() {
 		fmt.Printf("  Max Mermaid Lines:    %d\n", config.MaxMermaidLines)
 		fmt.Printf("  Vertical Scrolling:   %t\n", config.UseVerticalScroll)
 		fmt.Printf("  Horizontal Scrolling: %t\n", config.UseHorizontalScroll)
-		
+
 		// Visual layout representation
 		fmt.Printf("\nLayout Visualization:\n")
 		renderLayoutPreview(layout, size.width, size.height)
-		
+
 		fmt.Println()
 		fmt.Println()
 	}
@@ -102,39 +102,45 @@ func main() {
 
 func getScreenSizeName(screenSize tui.ScreenSize) string {
 	switch screenSize {
-	case 0: return "Tiny"
-	case 1: return "Small"  
-	case 2: return "Medium"
-	case 3: return "Large"
-	case 4: return "XLarge"
-	default: return "Unknown"
+	case 0:
+		return "Tiny"
+	case 1:
+		return "Small"
+	case 2:
+		return "Medium"
+	case 3:
+		return "Large"
+	case 4:
+		return "XLarge"
+	default:
+		return "Unknown"
 	}
 }
 
 func renderLayoutPreview(layout tui.LayoutDimensions, totalW, totalH int) {
 	// Create a simple ASCII representation of the layout
-	fmt.Printf("┌%s┬%s┐\n", 
-		strings.Repeat("─", layout.ToolsWidth/4), 
+	fmt.Printf("┌%s┬%s┐\n",
+		strings.Repeat("─", layout.ToolsWidth/4),
 		strings.Repeat("─", layout.InputWidth/4))
-	
+
 	fmt.Printf("│%s│%s│ ← Input (%dx%d)\n",
 		centerText("Tools", layout.ToolsWidth/4),
 		centerText("Input/Args", layout.InputWidth/4),
 		layout.InputWidth, layout.InputHeight)
-		
+
 	fmt.Printf("│%s├%s┤\n",
 		centerText(fmt.Sprintf("%dx%d", layout.ToolsWidth, layout.ToolsHeight), layout.ToolsWidth/4),
 		strings.Repeat("─", layout.VisualWidth/4))
-		
+
 	fmt.Printf("├%s┤%s│\n",
 		strings.Repeat("─", layout.HelpWidth/4),
 		centerText("Matrix Visual", layout.VisualWidth/4))
-		
+
 	fmt.Printf("│%s│%s│ ← Visual (%dx%d)\n",
 		centerText("Help", layout.HelpWidth/4),
 		centerText(fmt.Sprintf("%dx%d", layout.VisualWidth, layout.VisualHeight), layout.VisualWidth/4),
 		layout.VisualWidth, layout.VisualHeight)
-		
+
 	fmt.Printf("└%s┴%s┘\n",
 		strings.Repeat("─", layout.HelpWidth/4),
 		strings.Repeat("─", layout.VisualWidth/4))
