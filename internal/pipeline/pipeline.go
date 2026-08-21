@@ -380,7 +380,10 @@ func parseOutputFile(filepath string) ([]string, error) {
 	}
 	defer file.Close()
 
-	ext := strings.ToLower(filepath[strings.LastIndex(filepath, "."):])
+	ext := ""
+	if dot := strings.LastIndex(filepath, "."); dot >= 0 {
+		ext = strings.ToLower(filepath[dot:])
+	}
 
 	switch ext {
 	case ".json":

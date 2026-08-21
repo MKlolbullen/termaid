@@ -21,10 +21,7 @@ import (
 type MenuModel struct{ choices list.Model }
 
 func NewMenu() MenuModel {
-	templateCount := 0
-	if files, err := filepath.Glob("workflows/*.json"); err == nil {
-		templateCount = len(files)
-	}
+	templateCount := len(templateFiles())
 	defaultExists := "✗"
 	if _, err := os.Stat("workflow.json"); err == nil {
 		defaultExists = "✓"
@@ -63,11 +60,12 @@ func (m MenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			domInput.Focus()
 			return domainPrompt{input: domInput, template: "workflow.json"}, nil
 		case "📋 Run Template":
-			files, _ := filepath.Glob("workflows/*.json")
-			return newTmplPicker(files), nil
+			return newTmplPicker(templateFiles()), nil
 		case "👁️  Preview Workflow":
-			if _, err := os.Stat("workflow.mmd"); os.IsNotExist(err) {
-				return errView(fmt.Errorf("workflow.mmd not found - please create a workflow first")), nil
+			_, jsonErr := os.Stat("workflow.json")
+			_, mmdErr := os.Stat("workflow.mmd")
+			if os.IsNotExist(jsonErr) && os.IsNotExist(mmdErr) {
+				return errView(fmt.Errorf("no workflow found - create one (or add workflow.json / workflow.mmd) first")), nil
 			}
 			return previewMermaid()
 		case "🛠️  Create Workflow":
@@ -126,6 +124,17 @@ func catalogueNames() []string {
 	return out
 }
 
+// templateFiles lists saved workflow templates, both semantic JSON and Mermaid
+// charts, so a .mmd chart saved from the builder or mermaid.live is runnable via
+// "Run Template".
+func templateFiles() []string {
+	jsons, _ := filepath.Glob("workflows/*.json")
+	mmds, _ := filepath.Glob("workflows/*.mmd")
+	files := append(jsons, mmds...)
+	sort.Strings(files)
+	return files
+}
+
 // LoadWorkflow remains the compatibility entry point used by the visual
 // builder/tests, but delegates to the v2/v3 semantic loader.
 func LoadWorkflow(path string) (*graph.DAG, error) { return LoadWorkflowV3(path) }
@@ -136,7 +145,7 @@ func runWorkflowWithDomain(path, domain string) (tea.Model, tea.Cmd) {
 	if domain == "" {
 		return errView(fmt.Errorf("domain cannot be empty")), nil
 	}
-	dag, err := LoadWorkflowV3(path)
+	dag, err := LoadWorkflowAny(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return errView(fmt.Errorf("workflow file '%s' not found - please create a workflow first", path)), nil
@@ -227,7 +236,7 @@ func (m MenuModel) getStatusInfo() string {
 	} else {
 		status = append(status, "⚠ No default workflow")
 	}
-	if files, err := filepath.Glob("workflows/*.json"); err == nil && len(files) > 0 {
+	if files := templateFiles(); len(files) > 0 {
 		status = append(status, fmt.Sprintf("✓ %d templates available", len(files)))
 	} else {
 		status = append(status, "⚠ No templates found")

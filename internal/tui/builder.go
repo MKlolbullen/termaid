@@ -3,7 +3,7 @@ package tui
 import (
 	"fmt"
 	"io"
-	"regexp"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -13,6 +13,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/MKlolbullen/termaid/internal/graph"
+)
+
+// Default on-disk names for a workflow saved from / loaded into the builder. The
+// runnable JSON is the source of truth; the Mermaid chart is written alongside it
+// for previewing and sharing.
+const (
+	defaultWorkflowFile = "workflow.json"
+	defaultMermaidFile  = "workflow.mmd"
 )
 
 // sepItem is a non-selectable category header rendered inside the tool list.
@@ -161,6 +169,9 @@ func (m BuilderModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case hitHeader(v):
 				m.focus = fHeader
 				m.btnIdx = headerIndex(v)
+				if model, cmd, done := m.activateButton(); done {
+					return model, cmd
+				}
 			case hitList(v):
 				m.focus = fList
 				m.toolSel.Select(listRow(v))
@@ -185,6 +196,9 @@ func (m BuilderModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	/*──────── keyboard handling ────*/
 	case tea.KeyMsg:
+		if model, cmd, done := m.handleAction(v); done {
+			return model, cmd
+		}
 		m.handleKeys(v)
 	}
 
@@ -250,7 +264,7 @@ func (m *BuilderModel) handleKeys(k tea.KeyMsg) {
 		case "tab":
 			m.focus = fDomain
 		case "enter":
-			m.msg = "clicked " + stripAnsi(m.btns[m.btnIdx])
+			// header button activation is handled in handleAction
 		}
 
 	/* domain */
@@ -308,6 +322,128 @@ func (m *BuilderModel) handleKeys(k tea.KeyMsg) {
 }
 
 /*────────────────── DAG operations (add/rm/move) ───────────*/
+
+// handleAction intercepts keys that change which model is active (exit to the
+// menu, run the workflow) or that operate the header buttons, before the normal
+// per-focus key handling. It returns (model, cmd, true) when the builder should
+// hand control to another model.
+func (m *BuilderModel) handleAction(k tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	if m.moveMode || m.filterMode {
+		return nil, nil, false
+	}
+	switch k.String() {
+	case "ctrl+c":
+		return *m, tea.Quit, true
+	case "esc":
+		if m.focus != fDomain && m.focus != fArgs {
+			return NewMenu(), nil, true
+		}
+	case "q":
+		if m.focus == fHeader || m.focus == fCanvas {
+			return NewMenu(), nil, true
+		}
+	case "shift+tab":
+		switch m.focus {
+		case fDomain:
+			m.focus = fHeader
+			return *m, nil, true
+		case fList:
+			m.focus = fDomain
+			return *m, nil, true
+		}
+	case "enter":
+		if m.focus == fHeader {
+			return m.activateButton()
+		}
+	}
+	return nil, nil, false
+}
+
+// activateButton runs the currently selected header button. Save/Load stay in the
+// builder (returning done=false so the status line updates); Run saves and hands
+// off to the live execution view.
+func (m *BuilderModel) activateButton() (tea.Model, tea.Cmd, bool) {
+	if m.btnIdx < 0 || m.btnIdx >= len(m.btns) {
+		return nil, nil, false
+	}
+	switch m.btnIdx {
+	case 0: // ▶ Run
+		domain := strings.TrimSpace(m.domainInp.Value())
+		if domain == "" {
+			m.focus = fDomain
+			m.domainInp.Focus()
+			m.msg = "enter a target domain first, then ▶ Run"
+			return nil, nil, false
+		}
+		if err := m.saveWorkflow(); err != nil {
+			m.msg = "save failed: " + err.Error()
+			return nil, nil, false
+		}
+		model, cmd := runWorkflowWithDomain(defaultWorkflowFile, domain)
+		return model, cmd, true
+	case 3: // 💾 Save
+		if err := m.saveWorkflow(); err != nil {
+			m.msg = "save failed: " + err.Error()
+		} else {
+			m.msg = "saved " + defaultWorkflowFile + " + " + defaultMermaidFile
+		}
+		return nil, nil, false
+	case 4: // 📂 Load
+		if err := m.loadWorkflow(); err != nil {
+			m.msg = "load failed: " + err.Error()
+		} else {
+			m.msg = "loaded workflow from disk"
+		}
+		return nil, nil, false
+	default: // ⏸ Pause / ■ Stop are live-run controls
+		m.msg = "start the workflow with ▶ Run first"
+		return nil, nil, false
+	}
+}
+
+// saveWorkflow writes the current graph as both the runnable JSON workflow and a
+// Mermaid chart so it can be re-opened, previewed, or shared.
+func (m *BuilderModel) saveWorkflow() error {
+	if err := os.WriteFile(defaultWorkflowFile, []byte(m.g.ToJSON()), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(defaultMermaidFile, []byte(m.g.ToMermaid()), 0o644)
+}
+
+// loadWorkflow replaces the in-memory graph with a saved workflow (JSON preferred,
+// Mermaid otherwise) and rebuilds the per-tool occurrence counter so newly added
+// nodes get non-colliding ids.
+func (m *BuilderModel) loadWorkflow() error {
+	path := defaultWorkflowFile
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		path = defaultMermaidFile
+	}
+	g, err := LoadWorkflowAny(path)
+	if err != nil {
+		return err
+	}
+	m.g = g
+	m.rebuildOcc()
+	m.selNode = m.g.Root
+	m.curX, m.curY = 0, 0
+	return nil
+}
+
+func (m *BuilderModel) rebuildOcc() {
+	m.occ = make(map[string]int)
+	for id, n := range m.g.Nodes {
+		if id == m.g.Root {
+			continue
+		}
+		tool := n.Tool
+		if strings.TrimSpace(tool) == "" {
+			tool = stripToolSuffix(id)
+		}
+		if num := suffixNumber(id); num > m.occ[tool] {
+			m.occ[tool] = num
+		}
+	}
+}
 
 func (m *BuilderModel) nodeOps(k string) {
 	switch k {
@@ -487,7 +623,7 @@ func (m BuilderModel) View() string {
 	)
 
 	help := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(
-		"↑↓←→ move  n new  r rm  m pick/drop  c args  PgUp/Down zoom  Ctrl+↑↓ scroll  / filter  q quit",
+		"↑↓←→ move • n new • r rm • m pick/drop • c args • tab/shift+tab panes • enter=header button • / filter • esc/q menu",
 	)
 
 	return hdr + "\n" +
@@ -634,10 +770,4 @@ func idAtCursor(m BuilderModel) string {
 		return row[m.curX]
 	}
 	return ""
-}
-
-var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
-
-func stripAnsi(s string) string {
-	return strings.TrimSpace(ansiRe.ReplaceAllString(s, ""))
 }
