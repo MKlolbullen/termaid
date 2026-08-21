@@ -258,7 +258,8 @@ func (m MenuModel) cleanWorkdir() (tea.Model, tea.Cmd) {
 }
 
 type errorModel struct{ err error }
-func errView(e error) tea.Model { return errorModel{e} }
+
+func errView(e error) tea.Model                          { return errorModel{e} }
 func (e errorModel) Init() tea.Cmd                       { return nil }
 func (e errorModel) Update(tea.Msg) (tea.Model, tea.Cmd) { return e, tea.Quit }
 func (e errorModel) View() string                        { return "Error: " + e.err.Error() }

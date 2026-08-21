@@ -43,7 +43,7 @@ func TestConditionMatches(t *testing.T) {
 
 func TestPolicyAllowsIntrusiveOnlyWithApproval(t *testing.T) {
 	node := &graph.Node{
-		ID: "sqlmap-1",
+		ID:     "sqlmap-1",
 		Policy: graph.NodePolicy{Intrusive: true, Approval: "active-validation"},
 	}
 	workflow := graph.WorkflowPolicy{AllowIntrusive: false}

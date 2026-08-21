@@ -187,12 +187,12 @@ func (g *DAG) ToJSON() string {
 		Nodes       []string `json:"nodes"`
 	}
 	type workflowExport struct {
-		Version   string             `json:"version"`
-		Matrix    matrixExport       `json:"matrix"`
-		Policy    WorkflowPolicy     `json:"policy,omitempty"`
-		Subgraphs []subgraphExport   `json:"subgraphs,omitempty"`
-		Edges     []Edge             `json:"edges,omitempty"`
-		Workflow  []*Node            `json:"workflow"`
+		Version   string           `json:"version"`
+		Matrix    matrixExport     `json:"matrix"`
+		Policy    WorkflowPolicy   `json:"policy,omitempty"`
+		Subgraphs []subgraphExport `json:"subgraphs,omitempty"`
+		Edges     []Edge           `json:"edges,omitempty"`
+		Workflow  []*Node          `json:"workflow"`
 	}
 
 	var subgraphs []subgraphExport

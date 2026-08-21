@@ -65,7 +65,7 @@ type DAG struct {
 	Matrix    map[Coordinate][]*Node   `json:"matrix"`
 	Subgraphs map[string]*SubgraphInfo `json:"subgraphs"`
 	Edges     []Edge                   `json:"edges,omitempty"`
-	Policy    WorkflowPolicy          `json:"policy,omitempty"`
+	Policy    WorkflowPolicy           `json:"policy,omitempty"`
 	MaxX      int                      `json:"max_x"`
 	MaxY      int                      `json:"max_y"`
 }
@@ -437,7 +437,7 @@ func (g *DAG) GetNextPosition(layer int, subgraph string) int {
 }
 
 func (g *DAG) UpdateBounds(layer, position int) { g.updateBounds(layer, position) }
-func (g *DAG) MaxLayer() int                   { return g.MaxX }
+func (g *DAG) MaxLayer() int                    { return g.MaxX }
 
 func (g *DAG) RemoveFromLayer(id string) {
 	if node, ok := g.Nodes[id]; ok {

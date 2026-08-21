@@ -24,9 +24,9 @@ type ToolSummary struct {
 // HeadlessRunOptions exposes the v3 execution-controller features without
 // coupling the CLI directly to pipeline internals.
 type HeadlessRunOptions struct {
-	ResumeRunID    string
+	ResumeRunID      string
 	ApproveIntrusive bool
-	Approvals      map[string]bool
+	Approvals        map[string]bool
 }
 
 func CatalogInfo() []ToolSummary {
