@@ -136,6 +136,7 @@ func (g *DAG) TopologicalOrder() ([]string, error) {
 		if degree == 0 {
 			ready = append(ready, id)
 		}
+	}
 	sort.Strings(ready)
 
 	var order []string
