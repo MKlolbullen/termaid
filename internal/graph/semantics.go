@@ -36,14 +36,14 @@ const (
 	ArtifactReport     ArtifactType = "report"
 )
 
-// Edge is a first-class dependency. Condition uses the compact condition DSL
-// implemented by the runtime (always, nonempty, has_type:<type>, contains:<s>,
-// approved:<gate>, parent_success:<node>). Empty means always.
+// Edge is a first-class dependency. Control edges participate in readiness and
+// conditions but do not contribute their parent's artifact to the child input.
 type Edge struct {
 	From      string `json:"from"`
 	To        string `json:"to"`
 	Condition string `json:"condition,omitempty"`
 	Label     string `json:"label,omitempty"`
+	Control   bool   `json:"control,omitempty"`
 }
 
 // NodePolicy lets a workflow distinguish passive/discovery work from actions
@@ -92,7 +92,7 @@ func (g *DAG) Validate() error {
 		if e.From == e.To {
 			return fmt.Errorf("self edge on node %q", e.From)
 		}
-		if !artifactCompatible(from.Outputs, to.Inputs) {
+		if !e.Control && !artifactCompatible(from.Outputs, to.Inputs) {
 			return fmt.Errorf("artifact contract mismatch %s -> %s: outputs=%v inputs=%v", e.From, e.To, from.Outputs, to.Inputs)
 		}
 	}
@@ -136,7 +136,6 @@ func (g *DAG) TopologicalOrder() ([]string, error) {
 		if degree == 0 {
 			ready = append(ready, id)
 		}
-	}
 	sort.Strings(ready)
 
 	var order []string
@@ -160,7 +159,7 @@ func (g *DAG) TopologicalOrder() ([]string, error) {
 
 func artifactCompatible(outputs, inputs []ArtifactType) bool {
 	if len(outputs) == 0 || len(inputs) == 0 {
-		return true // v2/untyped compatibility
+		return true
 	}
 	for _, out := range outputs {
 		for _, in := range inputs {
