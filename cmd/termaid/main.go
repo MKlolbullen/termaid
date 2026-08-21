@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"text/tabwriter"
 
@@ -18,7 +19,7 @@ import (
 	"github.com/MKlolbullen/termaid/internal/tui"
 )
 
-const version = "1.1.0"
+const version = "1.2.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -65,9 +66,12 @@ func cmdRun(argv []string) {
 	wf := fs.String("w", "workflow.json", "workflow JSON file to execute")
 	domain := fs.String("d", "", "target domain (required)")
 	workdir := fs.String("o", "workdir", "output/working directory")
-	conc := fs.Int("c", 6, "maximum concurrent tools")
+	conc := fs.Int("c", 6, "maximum concurrent workflow nodes")
+	resume := fs.String("resume", "", "resume a prior run ID from its checkpoint")
+	approveIntrusive := fs.Bool("approve-intrusive", false, "explicitly authorize nodes marked intrusive")
+	approve := fs.String("approve", "", "comma-separated approval gate/node IDs")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: termaid run -d <domain> [-w workflow.json] [-o workdir] [-c 6]")
+		fmt.Fprintln(os.Stderr, "Usage: termaid run -d <domain> [-w workflow.json] [-o workdir] [-c 6] [--resume run-id] [--approve gate]")
 		fs.PrintDefaults()
 	}
 	_ = fs.Parse(argv)
@@ -78,11 +82,14 @@ func cmdRun(argv []string) {
 		os.Exit(2)
 	}
 
-	// Cancel the run cleanly on Ctrl-C / SIGTERM.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := tui.RunHeadless(ctx, *wf, *domain, *workdir, *conc, os.Stdout); err != nil {
+	if err := tui.RunHeadlessWithOptions(ctx, *wf, *domain, *workdir, *conc, tui.HeadlessRunOptions{
+		ResumeRunID:      *resume,
+		ApproveIntrusive: *approveIntrusive,
+		Approvals:        parseApprovalList(*approve),
+	}, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, "termaid run:", err)
 		os.Exit(1)
 	}
@@ -133,8 +140,19 @@ func cmdValidate(argv []string) {
 		fmt.Fprintln(os.Stderr, "termaid validate:", err)
 		os.Exit(1)
 	}
-	fmt.Printf("✔ %s is valid: %d node(s), %d layer(s), %d subgraph(s)\n",
-		*wf, len(dag.Nodes)-1, dag.MaxX, len(dag.Subgraphs))
+	fmt.Printf("✔ %s is valid: %d node(s), %d layer(s), %d subgraph(s), %d semantic edge(s)\n",
+		*wf, len(dag.Nodes)-1, dag.MaxX, len(dag.Subgraphs), len(dag.Edges))
+}
+
+func parseApprovalList(raw string) map[string]bool {
+	out := make(map[string]bool)
+	for _, item := range strings.Split(raw, ",") {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			out[item] = true
+		}
+	}
+	return out
 }
 
 func dash(s string) string {
@@ -148,13 +166,18 @@ func usage(w *os.File) {
 	fmt.Fprintln(w, `termaid `+version+` — terminal-native recon automation
 
 Usage:
-  termaid                         launch the interactive TUI
-  termaid run -d <domain> [-w f]  execute a workflow headlessly
-  termaid preview [-w f]          print a workflow's Mermaid diagram
-  termaid tools [-cat category]   list the tool catalog
-  termaid validate [-w f]         validate a workflow file
-  termaid version                 print the version
-  termaid help                    show this help
+  termaid                                  launch the interactive TUI
+  termaid run -d <domain> [-w f]           execute a dependency DAG
+  termaid preview [-w f]                   print semantic Mermaid
+  termaid tools [-cat category]            list the tool catalog
+  termaid validate [-w f]                  validate graph + artifact contracts
+  termaid version                          print the version
+  termaid help                             show this help
+
+DAG execution controls:
+  --resume <run-id>                        resume from workdir/<run-id>/checkpoint.json
+  --approve <gate,node,...>                approve named workflow gates/nodes
+  --approve-intrusive                      authorize nodes marked intrusive
 
 Run "termaid <command> -h" for command-specific flags.`)
 }
