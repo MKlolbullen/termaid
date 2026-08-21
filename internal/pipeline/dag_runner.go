@@ -138,13 +138,12 @@ func RunDAG(ctx context.Context, domain, workdir string, dag *graph.DAG, cfg Run
 				continue
 			}
 
-			eligible, inputFiles := eligibleParents(dag, node, parents, df, cfg)
-			if len(parents) > 0 && onlyRootParents(parents, dag.Root) {
-				eligible = nil
+			eligible, inputFiles, incomingOK := eligibleParents(dag, node, df, cfg)
+			if onlyRootParents(parents, dag.Root) {
 				inputFiles = []string{seedPath}
 			}
-			if len(parents) > 0 && !onlyRootParents(parents, dag.Root) && len(eligible) == 0 {
-				reason := "no incoming edge condition matched"
+			if !incomingOK {
+				reason := "incoming edge/control condition evaluated false"
 				df.RecordSkipped(nodeID, reason)
 				out <- Status{Type: StatusSkip, Category: categoryForNode(node), Tool: nodeID, Err: fmt.Errorf("%s", reason)}
 				delete(pending, nodeID)
@@ -179,7 +178,9 @@ func RunDAG(ctx context.Context, domain, workdir string, dag *graph.DAG, cfg Run
 			case graph.NodeKindMerge, graph.NodeKindGate, graph.NodeKindTransform, graph.NodeKindCheckpoint, graph.NodeKindSink, graph.NodeKindManual:
 				out <- Status{Type: StatusStart, Category: categoryForNode(node), Tool: nodeID}
 				result := executeBuiltin(node, inputPath, domain, df, dag.Policy)
-				df.RecordNodeOutput(nodeID, result.tool, result.start, result.end, result.exitCode, result.outputFiles, result.stderr)
+				if recErr := df.RecordNodeOutput(nodeID, result.tool, result.start, result.end, result.exitCode, result.outputFiles, result.stderr); recErr != nil {
+					return fmt.Errorf("record %s output: %w", nodeID, recErr)
+				}
 				decorateOutput(df, node, eligible, result.attempts)
 				if result.err != nil {
 					out <- Status{Type: StatusError, Category: categoryForNode(node), Tool: nodeID, Err: result.err}
@@ -197,7 +198,9 @@ func RunDAG(ctx context.Context, domain, workdir string, dag *graph.DAG, cfg Run
 			results := executeWorkers(ctx, workers, domain, filepath.Join(workdir, df.RunID, "raw"), concurrency, out)
 			for _, result := range results {
 				node := dag.Nodes[result.nodeID]
-				df.RecordNodeOutput(result.nodeID, result.tool, result.start, result.end, result.exitCode, result.outputFiles, result.stderr)
+				if recErr := df.RecordNodeOutput(result.nodeID, result.tool, result.start, result.end, result.exitCode, result.outputFiles, result.stderr); recErr != nil {
+					return fmt.Errorf("record %s output: %w", result.nodeID, recErr)
+				}
 				decorateOutput(df, node, dag.Parents(result.nodeID), result.attempts)
 				delete(pending, result.nodeID)
 				progress = true
@@ -262,32 +265,49 @@ func blockedByFailedParent(node *graph.Node, parents []string, states map[string
 	return false
 }
 
-func eligibleParents(dag *graph.DAG, node *graph.Node, parents []string, df *DataFlow, cfg RunConfig) ([]string, []string) {
+// eligibleParents evaluates all incoming edges. Data edges whose conditions
+// match contribute artifacts; control edges gate dispatch but never pollute the
+// child's input stream.
+func eligibleParents(dag *graph.DAG, node *graph.Node, df *DataFlow, cfg RunConfig) ([]string, []string, bool) {
 	var eligible []string
 	var files []string
-	edges := dag.IncomingEdges(node.ID)
-	for _, parent := range parents {
-		if parent == dag.Root {
+	dataEdges := 0
+	dataMatched := 0
+	controlOK := true
+
+	for _, edge := range dag.IncomingEdges(node.ID) {
+		if edge.From == dag.Root {
 			continue
 		}
-		state := df.GlobalState.NodeStates[parent]
+		state := df.GlobalState.NodeStates[edge.From]
 		if state != NodeCompleted {
+			if edge.Control {
+				controlOK = false
+			}
 			continue
 		}
-		parentFiles := outputFiles(df, parent)
-		condition := ""
-		for _, edge := range edges {
-			if edge.From == parent {
-				condition = edge.Condition
-				break
+		parentFiles := outputFiles(df, edge.From)
+		matched := conditionMatches(edge.Condition, parentFiles, df, cfg)
+		if edge.Control {
+			if !matched {
+				controlOK = false
+			}
+			continue
+		}
+		dataEdges++
+		if matched {
+			dataMatched++
+			if !containsID(eligible, edge.From) {
+				eligible = append(eligible, edge.From)
+				files = append(files, parentFiles...)
 			}
 		}
-		if conditionMatches(condition, parentFiles, df, cfg) {
-			eligible = append(eligible, parent)
-			files = append(files, parentFiles...)
-		}
 	}
-	return eligible, files
+
+	if dataEdges > 0 && dataMatched == 0 {
+		return eligible, files, false
+	}
+	return eligible, files, controlOK
 }
 
 func prepareInput(df *DataFlow, node *graph.Node, parents []string, seedPath string) (string, error) {
@@ -662,14 +682,14 @@ func policyAllows(node *graph.Node, workflow graph.WorkflowPolicy, cfg RunConfig
 }
 
 func targetAllowed(domain string, policy graph.WorkflowPolicy) bool {
-	if len(policy.AllowedRoots) == 0 {
-		return true
-	}
 	domain = normalizeHost(domain)
 	for _, excluded := range policy.Excluded {
 		if rootMatches(domain, substitutePolicyRoot(excluded, domain)) {
 			return false
 		}
+	}
+	if len(policy.AllowedRoots) == 0 {
+		return true
 	}
 	for _, root := range policy.AllowedRoots {
 		if rootMatches(domain, substitutePolicyRoot(root, domain)) {
@@ -722,7 +742,7 @@ func normalizeHost(value string) string {
 
 func rootMatches(host, root string) bool {
 	host, root = normalizeHost(host), normalizeHost(root)
-	return host == root || strings.HasSuffix(host, "."+root)
+	return root != "" && (host == root || strings.HasSuffix(host, "."+root))
 }
 
 func substitutePolicyRoot(root, domain string) string {
@@ -786,4 +806,13 @@ func artifactTypes(types []graph.ArtifactType) string {
 		parts[i] = string(t)
 	}
 	return strings.Join(parts, ",")
+}
+
+func containsID(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
