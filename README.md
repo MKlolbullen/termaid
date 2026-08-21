@@ -68,11 +68,27 @@ Launch the interactive TUI:
 
 ### Main Menu Options
 
-1. **Run Workflow** - Execute the default workflow.json
-2. **Run Template** - Choose from saved workflow templates
-3. **Preview Workflow** - View Mermaid diagram of current workflow
+1. **Run Default Workflow** - Execute the default `workflow.json`
+2. **Run Template** - Choose from saved workflow templates (`.json` or `.mmd`)
+3. **Preview Workflow** - View the Mermaid diagram of the current workflow
 4. **Create Workflow** - Open the visual workflow builder
-5. **Exit** - Quit the application
+5. **View Results** - Browse previous execution results
+6. **Clean Workdir** - Remove old execution files
+7. **Exit** - Quit the application
+
+Inside the **Create Workflow** builder, the header buttons are live: **💾 Save**
+writes `workflow.json` + `workflow.mmd`, **📂 Load** re-opens them, and **▶ Run**
+saves and executes against the domain you entered. Press **esc** (or **q**) to
+return to the menu.
+
+### Author a chart, then run it
+
+Because a workflow *is* a Mermaid chart, you can design one in
+[mermaid.live](https://mermaid.live) — label each node `tool` or `tool\nargs`,
+connect them with `-->` — save it as `workflow.mmd`, and run it directly. The
+`{{domain}}`, `{{input}}`, and `{{output}}` placeholders are substituted at run
+time with the target, the previous stage's output file, and the node's own output
+file. See `workflow.mmd` in this repo for a complete example.
 
 ## Command-Line (Headless) Mode
 
@@ -82,7 +98,9 @@ subcommand runs headlessly.
 
 ```bash
 # Execute a workflow against a target, writing results under ./workdir
+# (-w accepts a JSON workflow or a Mermaid .mmd chart)
 termaid run -d example.com -w workflow.json -o workdir -c 6
+termaid run -d example.com -w workflow.mmd
 
 # Print the Mermaid diagram for a workflow (JSON or .mmd)
 termaid preview -w workflow.json
@@ -101,10 +119,10 @@ termaid help
 
 | Command    | Flags                                   | Description                                  |
 |------------|-----------------------------------------|----------------------------------------------|
-| `run`      | `-d` domain (required), `-w`, `-o`, `-c` | Execute a workflow headlessly                |
-| `preview`  | `-w`                                    | Print a workflow's Mermaid diagram           |
+| `run`      | `-d` domain (required), `-w`, `-o`, `-c` | Execute a workflow (`-w` JSON or `.mmd`)     |
+| `preview`  | `-w`                                    | Print a workflow's Mermaid diagram (JSON or `.mmd`) |
 | `tools`    | `-cat`                                  | List the embedded tool catalog               |
-| `validate` | `-w`                                    | Check a workflow file for structural issues  |
+| `validate` | `-w`                                    | Check a workflow file (JSON or `.mmd`) for structural issues |
 
 `termaid run` streams per-tool status to stdout and exits non-zero on a fatal
 error, so it composes well with shell pipelines and CI steps. Press `Ctrl-C`

@@ -4,9 +4,88 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/MKlolbullen/termaid/internal/graph"
 )
+
+// LoadWorkflowAny loads a workflow from either a semantic JSON file or a Mermaid
+// chart (.mmd/.mermaid). Mermaid charts are parsed via graph.ParseMermaid and
+// then hydrated from the tool catalog so a minimally labelled chart still runs.
+// This is the entry point every run/validate/preview path should use.
+func LoadWorkflowAny(path string) (*graph.DAG, error) {
+	lower := strings.ToLower(path)
+	if strings.HasSuffix(lower, ".mmd") || strings.HasSuffix(lower, ".mermaid") {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		g, err := graph.ParseMermaid(string(data))
+		if err != nil {
+			return nil, fmt.Errorf("parse mermaid %q: %w", path, err)
+		}
+		hydrateFromCatalog(g)
+		return g, nil
+	}
+	return LoadWorkflowV3(path)
+}
+
+// hydrateFromCatalog fills in the tool/args a Mermaid chart may leave implicit:
+// a node id like "assetfinder-1" resolves to the "assetfinder" tool, and an empty
+// argument string inherits that tool's catalog default. Nodes that already carry
+// a tool/args are left untouched.
+func hydrateFromCatalog(g *graph.DAG) {
+	for _, n := range g.Nodes {
+		if n.ID == g.Root || n.EffectiveKind() != graph.NodeKindWorker {
+			continue
+		}
+		if strings.TrimSpace(n.Tool) == "" {
+			if cand := stripToolSuffix(n.ID); cand != "" {
+				if _, ok := catalogMap[cand]; ok {
+					n.Tool = cand
+				}
+			}
+		}
+		if strings.TrimSpace(n.Args) == "" {
+			if def := defaultArgs(n.Tool); def != "" {
+				n.Args = def
+			}
+		}
+	}
+}
+
+// stripToolSuffix removes a trailing "-<number>" occurrence suffix from a node
+// id (e.g. "subfinder-1" -> "subfinder"), matching how the builder names nodes.
+func stripToolSuffix(id string) string {
+	i := strings.LastIndex(id, "-")
+	if i <= 0 || i == len(id)-1 {
+		return id
+	}
+	for _, r := range id[i+1:] {
+		if r < '0' || r > '9' {
+			return id
+		}
+	}
+	return id[:i]
+}
+
+// suffixNumber returns the numeric value of a trailing "-<number>" in an id (e.g.
+// "subfinder-3" -> 3), or 0 when there is none. Used to reseed the builder's
+// per-tool occurrence counter after loading a workflow.
+func suffixNumber(id string) int {
+	i := strings.LastIndex(id, "-")
+	if i <= 0 || i == len(id)-1 {
+		return 0
+	}
+	n := 0
+	for _, r := range id[i+1:] {
+		if r < '0' || r > '9' {
+			return 0
+		}
+		n = n*10 + int(r-'0')
+	}
+	return n
+}
 
 // LoadWorkflowV3 loads both legacy v2 workflows and semantic v3 workflows.
 // v2 Children relationships are promoted to explicit edges automatically.

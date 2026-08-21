@@ -37,14 +37,22 @@ func CatalogInfo() []ToolSummary {
 	return out
 }
 
-// MermaidForWorkflow returns semantic Mermaid for JSON or raw .mmd content.
+// MermaidForWorkflow returns semantic Mermaid for a JSON workflow or a .mmd
+// chart. A .mmd file is parsed and re-rendered so the preview reflects the graph
+// termaid would actually run (and surfaces structural problems); if it cannot be
+// parsed, its raw text is returned as a best-effort preview.
 func MermaidForWorkflow(path string) (string, error) {
-	if strings.HasSuffix(path, ".mmd") {
-		b, err := os.ReadFile(path)
+	lower := strings.ToLower(path)
+	if strings.HasSuffix(lower, ".mmd") || strings.HasSuffix(lower, ".mermaid") {
+		data, err := os.ReadFile(path)
 		if err != nil {
 			return "", err
 		}
-		return string(b), nil
+		g, perr := graph.ParseMermaid(string(data))
+		if perr != nil {
+			return string(data), nil
+		}
+		return g.ToMermaid(), nil
 	}
 	dag, err := LoadWorkflowV3(path)
 	if err != nil {
@@ -56,7 +64,7 @@ func MermaidForWorkflow(path string) (string, error) {
 // ValidateWorkflow validates matrix layout, dependency acyclicity, node kinds,
 // and typed artifact contracts.
 func ValidateWorkflow(path string) (*graph.DAG, error) {
-	dag, err := LoadWorkflowV3(path)
+	dag, err := LoadWorkflowAny(path)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +84,7 @@ func RunHeadlessWithOptions(ctx context.Context, path, domain, workdir string, c
 	if concurrency < 1 {
 		concurrency = 1
 	}
-	dag, err := LoadWorkflowV3(path)
+	dag, err := LoadWorkflowAny(path)
 	if err != nil {
 		return fmt.Errorf("load workflow %q: %w", path, err)
 	}

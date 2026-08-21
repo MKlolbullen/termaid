@@ -63,7 +63,7 @@ func runTUI() {
 
 func cmdRun(argv []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
-	wf := fs.String("w", "workflow.json", "workflow JSON file to execute")
+	wf := fs.String("w", "workflow.json", "workflow JSON or Mermaid .mmd file to execute")
 	domain := fs.String("d", "", "target domain (required)")
 	workdir := fs.String("o", "workdir", "output/working directory")
 	conc := fs.Int("c", 6, "maximum concurrent workflow nodes")
@@ -132,7 +132,7 @@ func cmdTools(argv []string) {
 
 func cmdValidate(argv []string) {
 	fs := flag.NewFlagSet("validate", flag.ExitOnError)
-	wf := fs.String("w", "workflow.json", "workflow JSON file to validate")
+	wf := fs.String("w", "workflow.json", "workflow JSON or Mermaid .mmd file to validate")
 	_ = fs.Parse(argv)
 
 	dag, err := tui.ValidateWorkflow(*wf)

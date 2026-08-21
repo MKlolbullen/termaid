@@ -36,7 +36,12 @@ func (m tmplPicker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return NewMenu(), nil
 		}
 		if v.String() == "enter" {
-			selected := m.list.SelectedItem().(entryItem).desc // file path
+			item, ok := m.list.SelectedItem().(entryItem)
+			if !ok {
+				// No templates to choose from (empty workflows/ directory).
+				return NewMenu(), nil
+			}
+			selected := item.desc // file path
 			domInput := textinput.New()
 			domInput.Placeholder = "target.com"
 			domInput.Focus()
