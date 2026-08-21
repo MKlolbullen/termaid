@@ -1,75 +1,104 @@
 package graph
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
-// Node represents a workflow vertex with 2D matrix positioning.
+// Node represents a workflow vertex with 2D matrix positioning and execution
+// semantics. Older v2 workflows only populate the legacy fields; the helpers
+// in this package transparently treat an empty Kind as a worker node.
 type Node struct {
-	ID       string   `json:"id"`       // unique within the DAG  (e.g. nuclei-2)
-	Tool     string   `json:"tool"`     // executable name       (e.g. nuclei)
-	Args     string   `json:"args"`     // raw args (may contain placeholders)
-	Children []string `json:"children"` // downstream node IDs
-	Layer    int      `json:"layer"`    // horizontal layer index (X-axis)
-	Position int      `json:"position"` // vertical position in layer (Y-axis)
-	Subgraph string   `json:"subgraph"` // subgraph ID for grouping (empty = main graph)
-	SubX     int      `json:"sub_x"`    // X position within subgraph
-	SubY     int      `json:"sub_y"`    // Y position within subgraph
-	Parallel bool     `json:"parallel"` // can run in parallel with other nodes
+	ID       string   `json:"id"`
+	Tool     string   `json:"tool,omitempty"`
+	Args     string   `json:"args,omitempty"`
+	Children []string `json:"children,omitempty"`
+	Layer    int      `json:"layer"`
+	Position int      `json:"position"`
+	Subgraph string   `json:"subgraph,omitempty"`
+	SubX     int      `json:"sub_x,omitempty"`
+	SubY     int      `json:"sub_y,omitempty"`
+	Parallel bool     `json:"parallel,omitempty"`
+
+	// v3 execution semantics.
+	Kind      NodeKind       `json:"kind,omitempty"`
+	Inputs    []ArtifactType `json:"inputs,omitempty"`
+	Outputs   []ArtifactType `json:"outputs,omitempty"`
+	Transform string         `json:"transform,omitempty"`
+	Condition string         `json:"condition,omitempty"`
+	Policy    NodePolicy     `json:"policy,omitempty"`
+	Execution NodeExecution  `json:"execution,omitempty"`
+	Tags      []string       `json:"tags,omitempty"`
 }
 
-// Coordinate represents a 2D position in the workflow matrix
+// EffectiveKind preserves backwards compatibility with v2 workflow files.
+func (n *Node) EffectiveKind() NodeKind {
+	if n == nil || n.Kind == "" {
+		return NodeKindWorker
+	}
+	return n.Kind
+}
+
+// Coordinate represents a 2D position in the workflow matrix.
 type Coordinate struct {
-	X int // Layer (horizontal)
-	Y int // Position (vertical)
+	X int
+	Y int
 }
 
-// SubgraphInfo contains metadata about a subgraph
+// SubgraphInfo contains metadata about a subgraph.
 type SubgraphInfo struct {
 	ID          string                `json:"id"`
 	Name        string                `json:"name"`
-	Description string                `json:"description"`
+	Description string                `json:"description,omitempty"`
 	Nodes       []string              `json:"nodes"`
 	Parallel    bool                  `json:"parallel"`
-	Matrix      map[string]Coordinate `json:"matrix"` // node_id -> local coordinate
+	Matrix      map[string]Coordinate `json:"matrix,omitempty"`
 }
 
-// DAG is a directed acyclic graph of nodes with matrix positioning.
+// DAG is a directed acyclic graph of workflow nodes. Children is retained on
+// Node for v2 compatibility; Edges is authoritative for v3 semantics and may
+// carry conditions and labels.
 type DAG struct {
+	Version   string                   `json:"version,omitempty"`
 	Nodes     map[string]*Node         `json:"nodes"`
 	Root      string                   `json:"root"`
-	Matrix    map[Coordinate][]*Node   `json:"matrix"`    // coordinate -> nodes at position
-	Subgraphs map[string]*SubgraphInfo `json:"subgraphs"` // subgraph_id -> info
-	MaxX      int                      `json:"max_x"`     // maximum layer
-	MaxY      int                      `json:"max_y"`     // maximum position in any layer
+	Matrix    map[Coordinate][]*Node   `json:"matrix"`
+	Subgraphs map[string]*SubgraphInfo `json:"subgraphs"`
+	Edges     []Edge                   `json:"edges,omitempty"`
+	Policy    WorkflowPolicy          `json:"policy,omitempty"`
+	MaxX      int                      `json:"max_x"`
+	MaxY      int                      `json:"max_y"`
 }
 
-// NewDAG with an implicit "input" root.
+// NewDAG creates a v3 DAG with an implicit typed input root.
 func NewDAG() *DAG {
 	g := &DAG{
+		Version:   "3.0",
 		Nodes:     make(map[string]*Node),
 		Matrix:    make(map[Coordinate][]*Node),
 		Subgraphs: make(map[string]*SubgraphInfo),
-		MaxX:      0,
-		MaxY:      0,
+		Edges:     []Edge{},
 	}
 	g.Root = "input"
 	rootNode := &Node{
 		ID:       g.Root,
 		Tool:     "input",
+		Kind:     NodeKindSource,
+		Outputs:  []ArtifactType{ArtifactDomain},
 		Layer:    0,
 		Position: 0,
-		Parallel: false,
 	}
 	g.Nodes[g.Root] = rootNode
 	g.addToMatrix(rootNode)
 	return g
 }
 
-// AddNode attaches a new nodeID under parentID with matrix positioning.
+// AddNode attaches a new worker node under parentID.
 func (g *DAG) AddNode(parentID, nodeID, tool, args string, layer int) error {
 	return g.AddNodeAtPosition(parentID, nodeID, tool, args, layer, -1, "", false)
 }
 
-// AddNodeAtPosition adds a node with specific positioning and subgraph.
+// AddNodeAtPosition adds a worker node with matrix positioning.
 func (g *DAG) AddNodeAtPosition(parentID, nodeID, tool, args string, layer, position int, subgraph string, parallel bool) error {
 	if _, ok := g.Nodes[parentID]; !ok {
 		return fmt.Errorf("parent %q not found", parentID)
@@ -77,8 +106,6 @@ func (g *DAG) AddNodeAtPosition(parentID, nodeID, tool, args string, layer, posi
 	if _, dup := g.Nodes[nodeID]; dup {
 		return fmt.Errorf("node %q already exists", nodeID)
 	}
-
-	// Auto-assign position if not specified
 	if position == -1 {
 		position = g.getNextPosition(layer, subgraph)
 	}
@@ -92,16 +119,14 @@ func (g *DAG) AddNodeAtPosition(parentID, nodeID, tool, args string, layer, posi
 		Position: position,
 		Subgraph: subgraph,
 		Parallel: parallel,
+		Kind:     NodeKindWorker,
 	}
 
-	// Set subgraph coordinates if in subgraph
 	if subgraph != "" {
 		if sg, exists := g.Subgraphs[subgraph]; exists {
 			node.SubX = len(sg.Nodes)
-			node.SubY = 0
 			sg.Nodes = append(sg.Nodes, nodeID)
 		} else {
-			// Create new subgraph
 			g.Subgraphs[subgraph] = &SubgraphInfo{
 				ID:       subgraph,
 				Name:     subgraph,
@@ -109,29 +134,103 @@ func (g *DAG) AddNodeAtPosition(parentID, nodeID, tool, args string, layer, posi
 				Parallel: parallel,
 				Matrix:   make(map[string]Coordinate),
 			}
-			node.SubX = 0
-			node.SubY = 0
 		}
 		g.Subgraphs[subgraph].Matrix[nodeID] = Coordinate{X: node.SubX, Y: node.SubY}
 	}
 
 	g.Nodes[nodeID] = node
-	g.Nodes[parentID].Children = append(g.Nodes[parentID].Children, nodeID)
 	g.addToMatrix(node)
 	g.updateBounds(layer, position)
+	return g.AddEdge(parentID, nodeID, "", "")
+}
 
+// AddEdge creates an explicit v3 edge while maintaining the legacy Children
+// list so v2 callers and the visual builder continue to work.
+func (g *DAG) AddEdge(from, to, condition, label string) error {
+	if _, ok := g.Nodes[from]; !ok {
+		return fmt.Errorf("edge source %q not found", from)
+	}
+	if _, ok := g.Nodes[to]; !ok {
+		return fmt.Errorf("edge destination %q not found", to)
+	}
+	for _, e := range g.Edges {
+		if e.From == from && e.To == to && e.Condition == condition {
+			return nil
+		}
+	}
+	g.Edges = append(g.Edges, Edge{From: from, To: to, Condition: condition, Label: label})
+	if !containsString(g.Nodes[from].Children, to) {
+		g.Nodes[from].Children = append(g.Nodes[from].Children, to)
+	}
 	return nil
 }
 
-// Helper methods for matrix management
+// EnsureEdges upgrades legacy Children relationships into explicit v3 edges.
+func (g *DAG) EnsureEdges() {
+	for from, node := range g.Nodes {
+		for _, to := range node.Children {
+			found := false
+			for _, e := range g.Edges {
+				if e.From == from && e.To == to {
+					found = true
+					break
+				}
+			}
+			if !found {
+				g.Edges = append(g.Edges, Edge{From: from, To: to})
+			}
+		}
+	}
+}
 
-// addToMatrix adds a node to the coordinate matrix.
+// Parents returns direct upstream node IDs in deterministic order.
+func (g *DAG) Parents(nodeID string) []string {
+	g.EnsureEdges()
+	seen := map[string]struct{}{}
+	var out []string
+	for _, e := range g.Edges {
+		if e.To == nodeID {
+			if _, ok := seen[e.From]; !ok {
+				seen[e.From] = struct{}{}
+				out = append(out, e.From)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// IncomingEdges returns direct incoming edges for nodeID.
+func (g *DAG) IncomingEdges(nodeID string) []Edge {
+	g.EnsureEdges()
+	var out []Edge
+	for _, e := range g.Edges {
+		if e.To == nodeID {
+			out = append(out, e)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].From < out[j].From })
+	return out
+}
+
+// OutgoingEdges returns direct outgoing edges for nodeID.
+func (g *DAG) OutgoingEdges(nodeID string) []Edge {
+	g.EnsureEdges()
+	var out []Edge
+	for _, e := range g.Edges {
+		if e.From == nodeID {
+			out = append(out, e)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].To < out[j].To })
+	return out
+}
+
 func (g *DAG) addToMatrix(node *Node) {
 	coord := Coordinate{X: node.Layer, Y: node.Position}
 	g.Matrix[coord] = append(g.Matrix[coord], node)
 }
 
-// removeFromMatrix removes a node from the coordinate matrix.
 func (g *DAG) removeFromMatrix(node *Node) {
 	coord := Coordinate{X: node.Layer, Y: node.Position}
 	if nodes, exists := g.Matrix[coord]; exists {
@@ -141,27 +240,22 @@ func (g *DAG) removeFromMatrix(node *Node) {
 				break
 			}
 		}
-		// Remove coordinate if no nodes left
 		if len(g.Matrix[coord]) == 0 {
 			delete(g.Matrix, coord)
 		}
 	}
 }
 
-// getNextPosition finds the next available position in a layer.
 func (g *DAG) getNextPosition(layer int, subgraph string) int {
 	maxPos := -1
 	for _, node := range g.Nodes {
-		if node.Layer == layer && node.Subgraph == subgraph {
-			if node.Position > maxPos {
-				maxPos = node.Position
-			}
+		if node.Layer == layer && node.Subgraph == subgraph && node.Position > maxPos {
+			maxPos = node.Position
 		}
 	}
 	return maxPos + 1
 }
 
-// updateBounds updates the maximum X and Y coordinates.
 func (g *DAG) updateBounds(layer, position int) {
 	if layer > g.MaxX {
 		g.MaxX = layer
@@ -171,76 +265,49 @@ func (g *DAG) updateBounds(layer, position int) {
 	}
 }
 
-// recalculateBounds recalculates the maximum X and Y coordinates.
 func (g *DAG) recalculateBounds() {
-	g.MaxX = 0
-	g.MaxY = 0
+	g.MaxX, g.MaxY = 0, 0
 	for _, node := range g.Nodes {
-		if node.Layer > g.MaxX {
-			g.MaxX = node.Layer
-		}
-		if node.Position > g.MaxY {
-			g.MaxY = node.Position
-		}
+		g.updateBounds(node.Layer, node.Position)
 	}
 }
 
-// MoveNode changes the position of a node.
+// MoveNode changes a node's matrix position.
 func (g *DAG) MoveNode(nodeID string, newLayer, newPosition int) error {
 	node, exists := g.Nodes[nodeID]
 	if !exists {
 		return fmt.Errorf("node %q not found", nodeID)
 	}
-
-	// Remove from current position
 	g.removeFromMatrix(node)
-
-	// Update coordinates
-	node.Layer = newLayer
-	node.Position = newPosition
-
-	// Add to new position
+	node.Layer, node.Position = newLayer, newPosition
 	g.addToMatrix(node)
-	g.updateBounds(newLayer, newPosition)
-
+	g.recalculateBounds()
 	return nil
 }
 
 // CompactLayer removes gaps in positions within a layer.
 func (g *DAG) CompactLayer(layer int) {
-	nodes := []*Node{}
+	var nodes []*Node
 	for _, node := range g.Nodes {
 		if node.Layer == layer {
 			nodes = append(nodes, node)
 		}
 	}
-
-	// Sort by current position
-	for i := 0; i < len(nodes)-1; i++ {
-		for j := i + 1; j < len(nodes); j++ {
-			if nodes[i].Position > nodes[j].Position {
-				nodes[i], nodes[j] = nodes[j], nodes[i]
-			}
-		}
-	}
-
-	// Reassign positions sequentially
+	sort.Slice(nodes, func(i, j int) bool { return nodes[i].Position < nodes[j].Position })
 	for i, node := range nodes {
 		g.removeFromMatrix(node)
 		node.Position = i
 		g.addToMatrix(node)
 	}
-
 	g.recalculateBounds()
 }
 
-// GetExecutionOrder returns the optimal execution order considering matrix positioning.
+// GetExecutionOrder is the legacy matrix/layer execution plan. The v3 runtime
+// uses dependency readiness instead; this remains for previews and v2 callers.
 func (g *DAG) GetExecutionOrder() [][]string {
 	var order [][]string
-
 	for layer := 0; layer <= g.MaxX; layer++ {
-		layerGroups := g.GetParallelNodes(layer)
-		for _, group := range layerGroups {
+		for _, group := range g.GetParallelNodes(layer) {
 			nodeIDs := make([]string, len(group))
 			for i, node := range group {
 				nodeIDs[i] = node.ID
@@ -250,65 +317,48 @@ func (g *DAG) GetExecutionOrder() [][]string {
 			}
 		}
 	}
-
 	return order
 }
 
-// ValidateMatrix ensures the matrix is consistent and valid.
+// ValidateMatrix ensures the visual matrix is consistent.
 func (g *DAG) ValidateMatrix() error {
-	// Check for coordinate conflicts
 	for coord, nodes := range g.Matrix {
 		if len(nodes) > 1 {
-			// Multiple nodes at same coordinate - check if they're all parallel
 			for _, node := range nodes {
 				if !node.Parallel {
-					return fmt.Errorf("non-parallel node %s conflicts with other nodes at coordinate (%d,%d)",
-						node.ID, coord.X, coord.Y)
+					return fmt.Errorf("non-parallel node %s conflicts at coordinate (%d,%d)", node.ID, coord.X, coord.Y)
 				}
 			}
 		}
 	}
-
-	// Check if all nodes are in matrix
 	for _, node := range g.Nodes {
 		coord := Coordinate{X: node.Layer, Y: node.Position}
 		found := false
-		if matrixNodes, exists := g.Matrix[coord]; exists {
-			for _, matrixNode := range matrixNodes {
-				if matrixNode.ID == node.ID {
-					found = true
-					break
-				}
+		for _, matrixNode := range g.Matrix[coord] {
+			if matrixNode.ID == node.ID {
+				found = true
+				break
 			}
 		}
 		if !found {
-			return fmt.Errorf("node %s not found in matrix at coordinate (%d,%d)",
-				node.ID, coord.X, coord.Y)
+			return fmt.Errorf("node %s not found in matrix at coordinate (%d,%d)", node.ID, coord.X, coord.Y)
 		}
 	}
-
 	return nil
 }
 
-// RemoveNode deletes node and edges, updating matrix.
+// RemoveNode deletes a node and every inbound/outbound edge.
 func (g *DAG) RemoveNode(id string) error {
 	if id == g.Root {
 		return fmt.Errorf("cannot remove root")
 	}
-
-	// Get node before deletion
 	node, exists := g.Nodes[id]
 	if !exists {
 		return fmt.Errorf("node %q not found", id)
 	}
-
-	// Remove from matrix
 	g.removeFromMatrix(node)
-
-	// Remove from subgraph if applicable
 	if node.Subgraph != "" {
 		if sg, exists := g.Subgraphs[node.Subgraph]; exists {
-			// Remove from subgraph nodes list
 			for i, nodeID := range sg.Nodes {
 				if nodeID == id {
 					sg.Nodes = append(sg.Nodes[:i], sg.Nodes[i+1:]...)
@@ -316,18 +366,12 @@ func (g *DAG) RemoveNode(id string) error {
 				}
 			}
 			delete(sg.Matrix, id)
-
-			// Remove subgraph if empty
 			if len(sg.Nodes) == 0 {
 				delete(g.Subgraphs, node.Subgraph)
 			}
 		}
 	}
-
-	// Remove node
 	delete(g.Nodes, id)
-
-	// Remove from all children lists
 	for _, n := range g.Nodes {
 		dst := n.Children[:0]
 		for _, c := range n.Children {
@@ -337,14 +381,18 @@ func (g *DAG) RemoveNode(id string) error {
 		}
 		n.Children = dst
 	}
-
-	// Recalculate bounds
+	filtered := g.Edges[:0]
+	for _, e := range g.Edges {
+		if e.From != id && e.To != id {
+			filtered = append(filtered, e)
+		}
+	}
+	g.Edges = filtered
 	g.recalculateBounds()
-
 	return nil
 }
 
-// GetLayer returns node IDs at layer l, sorted by position.
+// GetLayer returns node IDs at layer l, sorted by visual position.
 func (g *DAG) GetLayer(l int) []string {
 	var nodes []*Node
 	for _, n := range g.Nodes {
@@ -352,16 +400,7 @@ func (g *DAG) GetLayer(l int) []string {
 			nodes = append(nodes, n)
 		}
 	}
-
-	// Sort by position (Y coordinate)
-	for i := 0; i < len(nodes)-1; i++ {
-		for j := i + 1; j < len(nodes); j++ {
-			if nodes[i].Position > nodes[j].Position {
-				nodes[i], nodes[j] = nodes[j], nodes[i]
-			}
-		}
-	}
-
+	sort.Slice(nodes, func(i, j int) bool { return nodes[i].Position < nodes[j].Position })
 	ids := make([]string, len(nodes))
 	for i, n := range nodes {
 		ids[i] = n.ID
@@ -369,7 +408,6 @@ func (g *DAG) GetLayer(l int) []string {
 	return ids
 }
 
-// GetLayerMatrix returns nodes at layer l organized by position.
 func (g *DAG) GetLayerMatrix(l int) map[int][]*Node {
 	matrix := make(map[int][]*Node)
 	for _, n := range g.Nodes {
@@ -380,7 +418,6 @@ func (g *DAG) GetLayerMatrix(l int) map[int][]*Node {
 	return matrix
 }
 
-// GetCoordinate returns the coordinate of a node.
 func (g *DAG) GetCoordinate(nodeID string) (Coordinate, bool) {
 	if node, exists := g.Nodes[nodeID]; exists {
 		return Coordinate{X: node.Layer, Y: node.Position}, true
@@ -388,7 +425,6 @@ func (g *DAG) GetCoordinate(nodeID string) (Coordinate, bool) {
 	return Coordinate{}, false
 }
 
-// GetNodesAtCoordinate returns all nodes at a specific coordinate.
 func (g *DAG) GetNodesAtCoordinate(coord Coordinate) []*Node {
 	if nodes, exists := g.Matrix[coord]; exists {
 		return nodes
@@ -396,62 +432,34 @@ func (g *DAG) GetNodesAtCoordinate(coord Coordinate) []*Node {
 	return []*Node{}
 }
 
-// GetNextPosition finds the next available position in a layer and subgraph.
 func (g *DAG) GetNextPosition(layer int, subgraph string) int {
-	maxPos := -1
-	for _, node := range g.Nodes {
-		if node.Layer == layer && node.Subgraph == subgraph {
-			if node.Position > maxPos {
-				maxPos = node.Position
-			}
-		}
-	}
-	return maxPos + 1
+	return g.getNextPosition(layer, subgraph)
 }
 
-// UpdateBounds updates the maximum X and Y coordinates.
-func (g *DAG) UpdateBounds(layer, position int) {
-	if layer > g.MaxX {
-		g.MaxX = layer
-	}
-	if position > g.MaxY {
-		g.MaxY = position
-	}
-}
+func (g *DAG) UpdateBounds(layer, position int) { g.updateBounds(layer, position) }
+func (g *DAG) MaxLayer() int                   { return g.MaxX }
 
-// MaxLayer returns the highest layer index currently in use (X axis).
-func (g *DAG) MaxLayer() int { return g.MaxX }
-
-// RemoveFromLayer detaches a node from the coordinate matrix without deleting
-// it from the graph, so it can be re-inserted at a new position.
 func (g *DAG) RemoveFromLayer(id string) {
 	if node, ok := g.Nodes[id]; ok {
 		g.removeFromMatrix(node)
 	}
 }
 
-// InsertAtLayer places an existing node at the given layer/position and
-// re-registers it in the matrix.
 func (g *DAG) InsertAtLayer(id string, layer, position int) {
 	node, ok := g.Nodes[id]
 	if !ok {
 		return
 	}
-	node.Layer = layer
-	node.Position = position
+	node.Layer, node.Position = layer, position
 	g.addToMatrix(node)
-	g.updateBounds(layer, position)
+	g.recalculateBounds()
 }
 
-// GetParallelNodes groups the nodes of a layer by how they execute. All
-// parallel nodes in the layer share a single concurrent group (regardless of
-// their vertical position), while each non-parallel node forms its own group
-// that runs sequentially.
+// GetParallelNodes is retained for the visual/matrix execution planner.
 func (g *DAG) GetParallelNodes(layer int) [][]*Node {
 	layerMatrix := g.GetLayerMatrix(layer)
 	var groups [][]*Node
-	parallelGroup := []*Node{}
-
+	var parallelGroup []*Node
 	for pos := 0; pos <= g.MaxY; pos++ {
 		nodes, exists := layerMatrix[pos]
 		if !exists {
@@ -465,35 +473,37 @@ func (g *DAG) GetParallelNodes(layer int) [][]*Node {
 			}
 		}
 	}
-
 	if len(parallelGroup) > 0 {
 		groups = append(groups, parallelGroup)
 	}
-
 	return groups
 }
 
-// GetSubgraphNodes returns all nodes in a subgraph, sorted by their subgraph coordinates.
 func (g *DAG) GetSubgraphNodes(subgraphID string) []*Node {
-	if sg, exists := g.Subgraphs[subgraphID]; exists {
-		var nodes []*Node
-		for _, nodeID := range sg.Nodes {
-			if node, exists := g.Nodes[nodeID]; exists {
-				nodes = append(nodes, node)
-			}
-		}
-
-		// Sort by subgraph coordinates
-		for i := 0; i < len(nodes)-1; i++ {
-			for j := i + 1; j < len(nodes); j++ {
-				if nodes[i].SubX > nodes[j].SubX ||
-					(nodes[i].SubX == nodes[j].SubX && nodes[i].SubY > nodes[j].SubY) {
-					nodes[i], nodes[j] = nodes[j], nodes[i]
-				}
-			}
-		}
-
-		return nodes
+	sg, exists := g.Subgraphs[subgraphID]
+	if !exists {
+		return []*Node{}
 	}
-	return []*Node{}
+	var nodes []*Node
+	for _, nodeID := range sg.Nodes {
+		if node, ok := g.Nodes[nodeID]; ok {
+			nodes = append(nodes, node)
+		}
+	}
+	sort.Slice(nodes, func(i, j int) bool {
+		if nodes[i].SubX != nodes[j].SubX {
+			return nodes[i].SubX < nodes[j].SubX
+		}
+		return nodes[i].SubY < nodes[j].SubY
+	})
+	return nodes
+}
+
+func containsString(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
