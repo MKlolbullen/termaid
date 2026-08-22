@@ -209,6 +209,7 @@ func (g *DAG) TopologicalOrder() ([]string, error) {
 				ready = append(ready, e.To)
 				sort.Strings(ready)
 			}
+		}
 	}
 	if len(order) != len(g.Nodes) {
 		return nil, fmt.Errorf("workflow is not acyclic")
