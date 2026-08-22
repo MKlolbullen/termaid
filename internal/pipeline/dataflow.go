@@ -283,7 +283,8 @@ func (df *DataFlow) RecordNodeOutput(nodeID, tool string, startTime, endTime tim
 		Metadata:    make(map[string]string),
 	}
 
-	// Store node output
+	// Store node output before analysis hooks so they can resolve provenance
+	// from already-completed parent outputs.
 	df.NodeOutputs[nodeID] = nodeOutput
 
 	// Update global state
@@ -293,6 +294,25 @@ func (df *DataFlow) RecordNodeOutput(nodeID, tool string, startTime, endTime tim
 	} else {
 		df.GlobalState.NodeStates[nodeID] = NodeFailed
 		df.GlobalState.Statistics.FailedNodes++
+	}
+
+	// Candidate/evidence correlation is produced at merge time, before a later
+	// report sink consumes normalized data. This preserves all raw observations.
+	if exitCode == 0 && strings.HasPrefix(tool, "builtin:merge") {
+		if err := persistMergeCorrelation(df, nodeOutput); err != nil {
+			return fmt.Errorf("persist correlation for %s: %w", nodeID, err)
+		}
+	}
+	if exitCode == 0 && strings.HasPrefix(tool, "builtin:sink") {
+		if err := persistCorrelationReport(df, nodeOutput); err != nil {
+			return fmt.Errorf("persist correlation report for %s: %w", nodeID, err)
+		}
+	}
+
+	// Every recorded result gets a byte-level provenance sidecar, including
+	// failed executions that may have partial output worth preserving.
+	if err := persistNodeProvenance(df, nodeOutput); err != nil {
+		return fmt.Errorf("persist provenance for %s: %w", nodeID, err)
 	}
 
 	// Create analysis summary
