@@ -155,17 +155,21 @@ func runTool(
 	outputFile := filepath.Join(catDir, fmt.Sprintf("%s-%d.txt", tool.Name, startTime.Unix()))
 	outputFiles = append(outputFiles, outputFile)
 
-	// Prepare args with placeholder substitution. Both the
-	// {{input}}/{{domain}}/{{output}} and $(target_file)/$(target)/$(output)
-	// placeholder styles are supported so hand-written presets and
-	// catalog-generated workflows behave identically.
+	// Prepare args with placeholder substitution and translate the legacy
+	// `> {{output}}` spelling into direct stdout capture. No shell is invoked.
 	domain := strings.TrimSpace(readFirstLine(inputPath))
-	args := substituteArgs(tool.Args, domain, inputPath, outputFile)
+	invocation, prepErr := prepareCommandArgv(tool.Args, domain, inputPath, outputFile)
+	if prepErr != nil {
+		out <- Status{Type: StatusError, Category: catName, Tool: tool.Name, Err: prepErr}
+		_ = dataFlow.RecordNodeOutput(tool.Name, tool.Command, startTime, time.Now(), 1, outputFiles, prepErr.Error())
+		return prepErr
+	}
+	args := invocation.Args
 
 	// Validate tool before execution
 	if err := validateTool(tool); err != nil {
 		out <- Status{Type: StatusError, Category: catName, Tool: tool.Name, Err: err}
-		dataFlow.RecordNodeOutput(tool.Name, tool.Command, startTime, time.Now(), 1, outputFiles, err.Error())
+		_ = dataFlow.RecordNodeOutput(tool.Name, tool.Command, startTime, time.Now(), 1, outputFiles, err.Error())
 		return err
 	}
 
@@ -186,22 +190,21 @@ func runTool(
 		inputFile, err := os.Open(inputPath)
 		if err != nil {
 			out <- Status{Type: StatusError, Category: catName, Tool: tool.Name, Err: err}
-			dataFlow.RecordNodeOutput(tool.Name, tool.Command, startTime, time.Now(), 1, outputFiles, err.Error())
+			_ = dataFlow.RecordNodeOutput(tool.Name, tool.Command, startTime, time.Now(), 1, outputFiles, err.Error())
 			return err
 		}
 		defer inputFile.Close()
 		cmd.Stdin = inputFile
 	}
 
-	// Capture stdout into the tool's output file unless the tool writes the
-	// file itself via an {{output}}/$(output) placeholder. Many recon tools
-	// stream results to stdout (e.g. "-o -"); without this their results
-	// would be discarded and never reach the next layer.
-	if !writesOwnFile(tool.Args) {
+	// Capture stdout into the tool's output file unless the tool itself owns an
+	// explicit {{output}} path. Tools configured with `-o -` and legacy stdout
+	// redirects are captured here.
+	if invocation.CaptureStdout {
 		outF, err := os.Create(outputFile)
 		if err != nil {
 			out <- Status{Type: StatusError, Category: catName, Tool: tool.Name, Err: err}
-			dataFlow.RecordNodeOutput(tool.Name, tool.Command, startTime, time.Now(), 1, outputFiles, err.Error())
+			_ = dataFlow.RecordNodeOutput(tool.Name, tool.Command, startTime, time.Now(), 1, outputFiles, err.Error())
 			return err
 		}
 		defer outF.Close()
@@ -211,7 +214,7 @@ func runTool(
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		out <- Status{Type: StatusError, Category: catName, Tool: tool.Name, Err: err}
-		dataFlow.RecordNodeOutput(tool.Name, tool.Command, startTime, time.Now(), 1, outputFiles, err.Error())
+		_ = dataFlow.RecordNodeOutput(tool.Name, tool.Command, startTime, time.Now(), 1, outputFiles, err.Error())
 		return err
 	}
 
@@ -241,7 +244,7 @@ func runTool(
 	}
 
 	// Record the node output regardless of success/failure
-	dataFlow.RecordNodeOutput(tool.Name, tool.Command, startTime, endTime, exitCode, outputFiles, errorLog.String())
+	_ = dataFlow.RecordNodeOutput(tool.Name, tool.Command, startTime, endTime, exitCode, outputFiles, errorLog.String())
 
 	return err
 }
@@ -346,29 +349,21 @@ func writesOwnFile(rawArgs []string) bool {
 	return false
 }
 
-// validateTool checks if a tool exists and is executable
+// validateTool checks only execution prerequisites that are universally true.
+// Tool-specific flag requirements age quickly and previously caused both false
+// rejections (for example valid nuclei defaults) and panics on an empty Args
+// slice. Individual tools remain responsible for validating their own flags.
 func validateTool(tool *Tool) error {
-	// Check if command exists in PATH
-	if _, err := exec.LookPath(tool.Command); err != nil {
-		return fmt.Errorf("command not found: %s (install it or check PATH)", tool.Command)
+	if tool == nil {
+		return fmt.Errorf("tool configuration is nil")
 	}
-
-	// Tool-specific validations
-	switch tool.Command {
-	case "nuclei":
-		if !strings.Contains(tool.Args[0], "-t") && !strings.Contains(tool.Args[0], "-w") {
-			return fmt.Errorf("nuclei requires templates (-t) or workflows (-w)")
-		}
-	case "ffuf":
-		if !strings.Contains(tool.Args[0], "-w") {
-			return fmt.Errorf("ffuf requires a wordlist (-w)")
-		}
-	case "gobuster":
-		if !strings.Contains(tool.Args[0], "-w") {
-			return fmt.Errorf("gobuster requires a wordlist (-w)")
-		}
+	command := strings.TrimSpace(tool.Command)
+	if command == "" {
+		return fmt.Errorf("tool command is empty")
 	}
-
+	if _, err := exec.LookPath(command); err != nil {
+		return fmt.Errorf("command not found: %s (install it or check PATH)", command)
+	}
 	return nil
 }
 
