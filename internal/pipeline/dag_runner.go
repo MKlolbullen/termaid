@@ -369,8 +369,12 @@ func executeWorker(ctx context.Context, node *graph.Node, domain, inputPath, raw
 		return result
 	}
 
-	rawArgs := strings.Fields(node.Args)
-	args := substituteArgs(rawArgs, domain, inputPath, outputFile)
+	invocation, prepErr := prepareCommandString(node.Args, domain, inputPath, outputFile)
+	if prepErr != nil {
+		result.end, result.err, result.stderr = time.Now(), prepErr, prepErr.Error()
+		return result
+	}
+	args := invocation.Args
 	maxAttempts := node.Execution.Retries + 1
 	if maxAttempts < 1 {
 		maxAttempts = 1
@@ -392,7 +396,7 @@ func executeWorker(ctx context.Context, node *graph.Node, domain, inputPath, raw
 		cmd.Stderr = &stderr
 
 		var outF *os.File
-		if !writesOwnFile(rawArgs) {
+		if invocation.CaptureStdout {
 			var err error
 			outF, err = os.Create(outputFile)
 			if err != nil {
