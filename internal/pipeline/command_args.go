@@ -46,10 +46,10 @@ func prepareCommandArgv(rawArgs []string, domain, inputPath, outputFile string) 
 
 // stripOutputRedirect translates the legacy shell-looking forms
 //
-//   > {{output}}
-//   1> {{output}}
-//   >{{output}}
-//   1>{{output}}
+//	> {{output}}
+//	1> {{output}}
+//	>{{output}}
+//	1>{{output}}
 //
 // into direct stdout capture. Only the Termaid output placeholder is accepted;
 // arbitrary filesystem redirection is deliberately not emulated.
