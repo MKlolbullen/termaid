@@ -122,13 +122,18 @@ func cloneRecord(record DataRecord) DataRecord {
 	return copyRecord
 }
 
-// persistMergeCorrelation correlates directly from a merge node's raw parent
-// files before the normalized merge artifact moves downstream. The sidecar is
-// linked from NodeOutput metadata; raw parent files remain untouched.
+// persistMergeCorrelation correlates directly from a finding/evidence merge's
+// raw parent files before the normalized artifact moves downstream. URL/host
+// merge stages are intentionally ignored to keep the analysis directory small.
 func persistMergeCorrelation(df *DataFlow, output *NodeOutput) error {
 	if df == nil || output == nil {
 		return fmt.Errorf("cannot correlate nil merge output")
 	}
+	artifact := correlationInputArtifact(df, output.NodeID)
+	if artifact == "" {
+		return nil
+	}
+
 	var records []DataRecord
 	for _, file := range uniqueSortedStrings(df.GlobalState.DataLinks[output.NodeID]) {
 		source := sourceNodeForArtifact(df, file)
@@ -144,9 +149,10 @@ func persistMergeCorrelation(df *DataFlow, output *NodeOutput) error {
 	groups := CorrelateGroups(records)
 	payload := struct {
 		NodeID      string             `json:"node_id"`
+		Artifact    string             `json:"artifact"`
 		GeneratedAt time.Time          `json:"generated_at"`
 		Groups      []CorrelationGroup `json:"groups"`
-	}{NodeID: output.NodeID, GeneratedAt: time.Now().UTC(), Groups: groups}
+	}{NodeID: output.NodeID, Artifact: artifact, GeneratedAt: time.Now().UTC(), Groups: groups}
 
 	path := filepath.Join(df.WorkDir, df.RunID, "analysis", fmt.Sprintf("%s-correlation.json", output.NodeID))
 	data, err := json.MarshalIndent(payload, "", "  ")
@@ -160,6 +166,7 @@ func persistMergeCorrelation(df *DataFlow, output *NodeOutput) error {
 		output.Metadata = make(map[string]string)
 	}
 	output.Metadata["correlation_file"] = path
+	output.Metadata["correlation_artifact"] = artifact
 	output.Metadata["correlation_groups"] = strconv.Itoa(len(groups))
 	return nil
 }
@@ -174,9 +181,6 @@ type CorrelationReport struct {
 	Evidence    []CorrelationGroup `json:"evidence"`
 }
 
-// persistCorrelationReport is called only after upstream merge nodes have been
-// decorated with their declared output type, so candidate and evidence
-// snapshots can be classified without guessing from filenames.
 func persistCorrelationReport(df *DataFlow, sinkOutput *NodeOutput) error {
 	if df == nil || sinkOutput == nil {
 		return fmt.Errorf("cannot create correlation report for nil sink")
@@ -197,10 +201,10 @@ func persistCorrelationReport(df *DataFlow, sinkOutput *NodeOutput) error {
 			continue
 		}
 		for _, group := range groups {
-			switch {
-			case metadataHasArtifact(output.Metadata, "finding"):
+			switch output.Metadata["correlation_artifact"] {
+			case "finding":
 				candidateRecords = append(candidateRecords, group.Observations...)
-			case metadataHasArtifact(output.Metadata, "evidence"):
+			case "evidence":
 				evidenceRecords = append(evidenceRecords, group.Observations...)
 			}
 		}
@@ -235,7 +239,9 @@ func persistCorrelationReport(df *DataFlow, sinkOutput *NodeOutput) error {
 		sinkOutput.Metadata = make(map[string]string)
 	}
 	sinkOutput.Metadata["correlation_report_file"] = path
-	sinkOutput.OutputFiles = append(sinkOutput.OutputFiles, path)
+	if ref, err := artifactRef(df, path, "analysis-report"); err == nil {
+		sinkOutput.Metadata["correlation_report_sha256"] = ref.SHA256
+	}
 	return nil
 }
 
@@ -251,6 +257,30 @@ func readCorrelationGroups(path string) ([]CorrelationGroup, error) {
 		return nil, err
 	}
 	return payload.Groups, nil
+}
+
+func correlationInputArtifact(df *DataFlow, nodeID string) string {
+	kind := ""
+	for _, file := range df.GlobalState.DataLinks[nodeID] {
+		source := sourceNodeForArtifact(df, file)
+		output := df.NodeOutputs[source]
+		if output == nil {
+			continue
+		}
+		if metadataHasArtifact(output.Metadata, "evidence") {
+			if kind != "" && kind != "evidence" {
+				return ""
+			}
+			kind = "evidence"
+		}
+		if metadataHasArtifact(output.Metadata, "finding") {
+			if kind != "" && kind != "finding" {
+				return ""
+			}
+			kind = "finding"
+		}
+	}
+	return kind
 }
 
 func metadataHasArtifact(metadata map[string]string, want string) bool {
