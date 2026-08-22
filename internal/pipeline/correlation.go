@@ -11,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/MKlolbullen/termaid/internal/graph"
 )
 
 // CorrelationKey groups tool observations that describe the same underlying
@@ -41,7 +39,7 @@ func CorrelationKey(record DataRecord) string {
 
 // CorrelationGroup preserves every raw observation contributing to one logical
 // finding/evidence item while still selecting a representative record for
-// reporting. This prevents de-duplication from destroying source evidence.
+// reporting. De-duplication therefore never destroys source evidence.
 type CorrelationGroup struct {
 	Key            string       `json:"key"`
 	Representative DataRecord   `json:"representative"`
@@ -124,34 +122,33 @@ func cloneRecord(record DataRecord) DataRecord {
 	return copyRecord
 }
 
-// writeCorrelationSnapshot correlates a merge node from its raw parent outputs,
-// not from the already-normalized merged file. That retains source identity and
-// gives report generation a candidate/evidence snapshot created before the sink.
-func writeCorrelationSnapshot(df *DataFlow, node *graph.Node, parents []string) error {
-	output := df.NodeOutputs[node.ID]
-	if output == nil {
-		return fmt.Errorf("node %s has no recorded output for correlation", node.ID)
+// persistMergeCorrelation correlates directly from a merge node's raw parent
+// files before the normalized merge artifact moves downstream. The sidecar is
+// linked from NodeOutput metadata; raw parent files remain untouched.
+func persistMergeCorrelation(df *DataFlow, output *NodeOutput) error {
+	if df == nil || output == nil {
+		return fmt.Errorf("cannot correlate nil merge output")
 	}
 	var records []DataRecord
-	for _, parentID := range parents {
-		for _, file := range outputFiles(df, parentID) {
-			parsed, err := df.parseFile(file, parentID)
-			if err != nil {
-				continue
-			}
-			records = append(records, parsed...)
+	for _, file := range uniqueSortedStrings(df.GlobalState.DataLinks[output.NodeID]) {
+		source := sourceNodeForArtifact(df, file)
+		if source == "" {
+			source = filepath.Base(file)
 		}
+		parsed, err := df.parseFile(file, source)
+		if err != nil {
+			continue
+		}
+		records = append(records, parsed...)
 	}
 	groups := CorrelateGroups(records)
 	payload := struct {
 		NodeID      string             `json:"node_id"`
-		Artifact    string             `json:"artifact"`
 		GeneratedAt time.Time          `json:"generated_at"`
 		Groups      []CorrelationGroup `json:"groups"`
-	}{
-		NodeID: node.ID, Artifact: artifactTypes(node.Outputs), GeneratedAt: time.Now().UTC(), Groups: groups,
-	}
-	path := filepath.Join(df.WorkDir, df.RunID, "analysis", fmt.Sprintf("%s-correlation.json", node.ID))
+	}{NodeID: output.NodeID, GeneratedAt: time.Now().UTC(), Groups: groups}
+
+	path := filepath.Join(df.WorkDir, df.RunID, "analysis", fmt.Sprintf("%s-correlation.json", output.NodeID))
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return err
@@ -168,8 +165,8 @@ func writeCorrelationSnapshot(df *DataFlow, node *graph.Node, parents []string) 
 }
 
 // CorrelationReport is the report sink's structured output. Candidate findings
-// and verification evidence stay separate lifecycle stages while each retains
-// its raw observations.
+// and verification evidence remain separate lifecycle stages while every group
+// retains all raw observations.
 type CorrelationReport struct {
 	Version     string             `json:"version"`
 	GeneratedAt time.Time          `json:"generated_at"`
@@ -177,10 +174,20 @@ type CorrelationReport struct {
 	Evidence    []CorrelationGroup `json:"evidence"`
 }
 
-func writeCorrelationReport(df *DataFlow, node *graph.Node, fallbackInput string) (string, error) {
+// persistCorrelationReport is called only after upstream merge nodes have been
+// decorated with their declared output type, so candidate and evidence
+// snapshots can be classified without guessing from filenames.
+func persistCorrelationReport(df *DataFlow, sinkOutput *NodeOutput) error {
+	if df == nil || sinkOutput == nil {
+		return fmt.Errorf("cannot create correlation report for nil sink")
+	}
 	var candidateRecords []DataRecord
 	var evidenceRecords []DataRecord
-	for _, output := range df.NodeOutputs {
+
+	for nodeID, output := range df.NodeOutputs {
+		if output == nil || nodeID == sinkOutput.NodeID {
+			continue
+		}
 		path := output.Metadata["correlation_file"]
 		if path == "" {
 			continue
@@ -190,31 +197,46 @@ func writeCorrelationReport(df *DataFlow, node *graph.Node, fallbackInput string
 			continue
 		}
 		for _, group := range groups {
-			if strings.Contains(output.Metadata["outputs"], string(graph.ArtifactFinding)) {
+			switch {
+			case metadataHasArtifact(output.Metadata, "finding"):
 				candidateRecords = append(candidateRecords, group.Observations...)
-			}
-			if strings.Contains(output.Metadata["outputs"], string(graph.ArtifactEvidence)) {
+			case metadataHasArtifact(output.Metadata, "evidence"):
 				evidenceRecords = append(evidenceRecords, group.Observations...)
 			}
 		}
 	}
-	if len(evidenceRecords) == 0 && fallbackInput != "" {
-		records, err := df.parseFile(fallbackInput, node.ID)
-		if err == nil {
-			evidenceRecords = append(evidenceRecords, records...)
+
+	// A legacy/untyped workflow may not have an evidence-typed merge. Preserve a
+	// useful report by correlating the sink's actual input as a fallback.
+	if len(evidenceRecords) == 0 {
+		for _, file := range df.GlobalState.DataLinks[sinkOutput.NodeID] {
+			source := sourceNodeForArtifact(df, file)
+			parsed, err := df.parseFile(file, source)
+			if err == nil {
+				evidenceRecords = append(evidenceRecords, parsed...)
+			}
 		}
 	}
 
 	report := CorrelationReport{
 		Version: "1.0", GeneratedAt: time.Now().UTC(),
-		Candidates: CorrelateGroups(candidateRecords), Evidence: CorrelateGroups(evidenceRecords),
+		Candidates: CorrelateGroups(candidateRecords),
+		Evidence:   CorrelateGroups(evidenceRecords),
 	}
-	path := filepath.Join(df.WorkDir, df.RunID, "analysis", fmt.Sprintf("%s-correlated-report.json", node.ID))
+	path := filepath.Join(df.WorkDir, df.RunID, "analysis", fmt.Sprintf("%s-correlation-report.json", sinkOutput.NodeID))
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
-		return "", err
+		return err
 	}
-	return path, os.WriteFile(path, data, 0o600)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return err
+	}
+	if sinkOutput.Metadata == nil {
+		sinkOutput.Metadata = make(map[string]string)
+	}
+	sinkOutput.Metadata["correlation_report_file"] = path
+	sinkOutput.OutputFiles = append(sinkOutput.OutputFiles, path)
+	return nil
 }
 
 func readCorrelationGroups(path string) ([]CorrelationGroup, error) {
@@ -229,4 +251,13 @@ func readCorrelationGroups(path string) ([]CorrelationGroup, error) {
 		return nil, err
 	}
 	return payload.Groups, nil
+}
+
+func metadataHasArtifact(metadata map[string]string, want string) bool {
+	for _, item := range strings.Split(metadata["outputs"], ",") {
+		if strings.EqualFold(strings.TrimSpace(item), want) {
+			return true
+		}
+	}
+	return false
 }
