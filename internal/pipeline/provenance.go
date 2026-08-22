@@ -124,7 +124,6 @@ func attachNodeProvenance(df *DataFlow, node *graph.Node, dag *graph.DAG, cfg Ru
 		return prov.ControlDecisions[i].From < prov.ControlDecisions[j].From
 	})
 
-	output.Provenance = prov
 	path := filepath.Join(df.WorkDir, df.RunID, "analysis", fmt.Sprintf("%s-provenance.json", node.ID))
 	data, err := json.MarshalIndent(prov, "", "  ")
 	if err != nil {
@@ -133,7 +132,11 @@ func attachNodeProvenance(df *DataFlow, node *graph.Node, dag *graph.DAG, cfg Ru
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("write provenance for %s: %w", node.ID, err)
 	}
-	output.ProvenanceFile = path
+	if output.Metadata == nil {
+		output.Metadata = make(map[string]string)
+	}
+	output.Metadata["provenance_file"] = path
+	output.Metadata["provenance_recorded_at"] = prov.RecordedAt.Format(time.RFC3339Nano)
 	return nil
 }
 
