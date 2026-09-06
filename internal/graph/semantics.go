@@ -112,12 +112,71 @@ func (g *DAG) Validate() error {
 		if n.Execution.TimeoutSeconds < 0 || n.Execution.Retries < 0 || n.Execution.RetryBackoffMS < 0 {
 			return fmt.Errorf("node %q has negative execution controls", id)
 		}
+		if n.Policy.RequiresApproval && strings.TrimSpace(n.Policy.Approval) == "" {
+			return fmt.Errorf("node %q requires approval but has no explicit approval key", id)
+		}
+
+		dataIncoming, controlIncoming := 0, 0
+		for _, edge := range g.IncomingEdges(id) {
+			if edge.Control {
+				controlIncoming++
+			} else {
+				dataIncoming++
+			}
+		}
+		if controlIncoming > 0 && dataIncoming == 0 && len(n.Inputs) > 0 {
+			return fmt.Errorf("node %q has typed inputs but only control edges; add a data edge for its artifact input", id)
+		}
 	}
 
 	if cycle := g.findCycle(); len(cycle) > 0 {
 		return fmt.Errorf("workflow contains a cycle: %s", strings.Join(cycle, " -> "))
 	}
+	if err := g.validateApprovalBoundaries(); err != nil {
+		return err
+	}
 	return nil
+}
+
+// validateApprovalBoundaries makes the workflow structure prove where active
+// validation is authorized. Runtime flags can approve a boundary, but they do
+// not turn an unguarded intrusive worker into a valid workflow.
+func (g *DAG) validateApprovalBoundaries() error {
+	for id, node := range g.Nodes {
+		if id == g.Root || !node.Policy.Intrusive {
+			continue
+		}
+		key := strings.TrimSpace(node.Policy.Approval)
+		if key == "" {
+			return fmt.Errorf("intrusive node %q must declare an explicit approval key", id)
+		}
+		if !g.hasApprovalGateAncestor(id, key) {
+			return fmt.Errorf("intrusive node %q is not behind an approval gate for %q", id, key)
+		}
+	}
+	return nil
+}
+
+func (g *DAG) hasApprovalGateAncestor(nodeID, approval string) bool {
+	queue := append([]string(nil), g.Parents(nodeID)...)
+	seen := make(map[string]struct{}, len(queue))
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		node := g.Nodes[id]
+		if node == nil {
+			continue
+		}
+		if node.EffectiveKind() == NodeKindGate && node.Policy.RequiresApproval && strings.TrimSpace(node.Policy.Approval) == approval {
+			return true
+		}
+		queue = append(queue, g.Parents(id)...)
+	}
+	return false
 }
 
 // TopologicalOrder returns deterministic dependency order independent of the
